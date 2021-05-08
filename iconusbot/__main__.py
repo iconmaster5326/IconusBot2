@@ -228,7 +228,7 @@ async def rollhelp(ctx: commands.Context, *args: str):
     if not args:
         message = "```\n"
         max_namelen = max(len(x) for x in roll_functions.NAMES_TO_FUNCTIONS.keys())
-        for name, fn in roll_functions.NAMES_TO_FUNCTIONS.items():
+        for name, fn in sorted(roll_functions.NAMES_TO_FUNCTIONS.items()):
             message += (
                 name + " " * (max_namelen - len(name) + 2) + fn.description() + "\n"
             )

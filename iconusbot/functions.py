@@ -1,5 +1,6 @@
-from .roll import _Number, Expression, DiceRollError
+from .roll import _Number, Expression, DiceRollError, EvaluatedSequence
 import typing
+
 
 class _Percentage(float):
     def __repr__(self) -> str:
@@ -26,10 +27,22 @@ class FnOp(Expression):
         return "%s %s" % (self.name(), self.arg)
 
 
-class ProbabilityOf(FnOp):
-    def __init__(self, arg: Expression):
-        self.arg = arg
+class ExpandableFnOp(FnOp):
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        expanded_arg, arg_expanded = self.arg.expand()
+        return self.__class__(expanded_arg), arg_expanded
 
+
+class SeqFnOp(FnOp):
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        _, arg_expanded = self.arg.expand()
+        return (
+            self.__class__(EvaluatedSequence(*self.arg.as_sequence().roll())),
+            arg_expanded,
+        )
+
+
+class ProbabilityOf(FnOp):
     def roll(self):
         return _Percentage(self.arg.probability())
 
@@ -60,9 +73,6 @@ Examples:
 
 
 class Mean(FnOp):
-    def __init__(self, arg: Expression):
-        self.arg = arg
-
     def roll(self):
         return _Number(self.arg.mean())
 
@@ -72,7 +82,7 @@ class Mean(FnOp):
 
     @classmethod
     def description(cls) -> str:
-        return "average of a list"
+        return "average of a sequence"
 
     @classmethod
     def help(cls) -> str:
@@ -93,9 +103,6 @@ Examples:
 
 
 class Min(FnOp):
-    def __init__(self, arg: Expression):
-        self.arg = arg
-
     def roll(self):
         return _Number(self.arg.min())
 
@@ -105,7 +112,7 @@ class Min(FnOp):
 
     @classmethod
     def description(cls) -> str:
-        return "minimum of a list"
+        return "minimum of a sequence"
 
     @classmethod
     def help(cls) -> str:
@@ -126,9 +133,6 @@ Examples:
 
 
 class Max(FnOp):
-    def __init__(self, arg: Expression):
-        self.arg = arg
-
     def roll(self):
         return _Number(self.arg.max())
 
@@ -138,7 +142,7 @@ class Max(FnOp):
 
     @classmethod
     def description(cls) -> str:
-        return "maximum of a list"
+        return "maximum of a sequence"
 
     @classmethod
     def help(cls) -> str:
@@ -159,9 +163,6 @@ Examples:
 
 
 class ProbTab(FnOp):
-    def __init__(self, arg: Expression):
-        self.arg = arg
-
     def roll(self):
         return self.arg.probability_table()
 
@@ -189,8 +190,97 @@ Examples:
 """
 
 
+class Seq(SeqFnOp):
+    def roll(self):
+        return tuple(self.arg.as_sequence().roll())
+
+    @classmethod
+    def name(cls):
+        return "seq"
+
+    @classmethod
+    def description(cls) -> str:
+        return "convert to a sequence"
+
+    @classmethod
+    def help(cls) -> str:
+        return """seq <xdy>
+
+Arguments:
+    xdy - An XdY expression
+
+Result:
+    Converts an XdY expression to a sequence.
+    Normally, XdY expressions are usable wherever
+    sequences can be used, but this function forces
+    the expression to be presented as a sequence.
+
+Examples:
+    !roll seq 3d4
+"""
+
+
+class Sum(SeqFnOp):
+    def roll(self):
+        return _Number(sum(self.arg.as_sequence().roll()))
+
+    @classmethod
+    def name(cls):
+        return "sum"
+
+    @classmethod
+    def description(cls) -> str:
+        return "sum of a sequence"
+
+    @classmethod
+    def help(cls) -> str:
+        return """sum <seq>
+
+Arguments:
+    seq - A sequence
+
+Result:
+    Adds together all elements in a sequence.
+
+Examples:
+    !roll sum 3d4
+    !roll sum(1,2,3)
+"""
+
+
+class Product(SeqFnOp):
+    def roll(self):
+        result = 1.0
+        for value in self.arg.as_sequence().roll():
+            result *= value
+        return _Number(result)
+
+    @classmethod
+    def name(cls):
+        return "product"
+
+    @classmethod
+    def description(cls) -> str:
+        return "product of a sequence"
+
+    @classmethod
+    def help(cls) -> str:
+        return """product <seq>
+
+Arguments:
+    seq - A sequence
+
+Result:
+    Multiplies together all elements in a sequence.
+
+Examples:
+    !roll product 3d4
+    !roll product(1,2,3)
+"""
+
+
 NAMES_TO_FUNCTIONS: typing.Dict[str, typing.Type[FnOp]] = {
-    fn.name(): fn for fn in (ProbabilityOf, Mean, Min, Max, ProbTab)
+    fn.name(): fn for fn in (ProbabilityOf, Mean, Min, Max, ProbTab, Seq, Sum, Product)
 }
 
 
