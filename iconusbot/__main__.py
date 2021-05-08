@@ -188,6 +188,7 @@ Result:
                as well as boolean operations (and, or, not, etc.).
         X drop worst Y - rolls X, and drops the worst Y results.
                          also try "drop best" and "keep worst".
+        if C then X else Y - if C is true, roll X, else roll Y.
         
     For a list of other functions you can use, call !rollhelp.
 """,

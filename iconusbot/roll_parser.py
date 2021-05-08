@@ -38,6 +38,7 @@ class _RollParser(lark.Transformer):
     tuple_1 = roll.Tuple
     tuple_n = roll.Tuple
     fn_call = lambda self, name, arg: functions.resolve_function_call(name, arg)
+    ifte = roll.IfThenElse
 
 
 _grammar_file = os.path.join(os.path.dirname(__file__), "roll.lark")
@@ -49,3 +50,5 @@ def parse(text: str) -> roll.Expression:
         return _RollParser().transform(_grammar.parse(text))
     except lark.exceptions.VisitError as e:
         raise e.orig_exc
+    except lark.exceptions.ParseError as e:
+        raise roll.DiceRollError("syntax error:\n```\n%s\n```" % e)

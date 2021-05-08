@@ -27,7 +27,7 @@ class Expression:
                 return self.roll()
             else:
                 result = 0.0
-                for key, value in self.probability_table():
+                for key, value in self.probability_table().items():
                     result += key * value
                 return result
         except DiceRollError:
@@ -651,3 +651,66 @@ class Not(Expression):
 
     def __repr__(self) -> str:
         return "not %s" % self.lhs
+
+
+class IfThenElse(Expression):
+    def __init__(self, if_: Expression, then: Expression, else_: Expression):
+        self.if_ = if_
+        self.then = then
+        self.else_ = else_
+
+    def roll(self):
+        return self.then.roll() if self.if_.roll() else self.else_.roll()
+
+    def probability(self) -> float:
+        cond_prob = self.if_.probability()
+        return (
+            cond_prob * self.then.probability()
+            + (1 - cond_prob) * self.else_.probability()
+        )
+
+    def constant(self) -> bool:
+        if self.if_.constant():
+            if self.if_.roll():
+                return self.then.constant()
+            else:
+                return self.else_.constant()
+        return False
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        cond_prob = self.if_.probability()
+        result = {}
+        for key, value in self.then.probability_table().items():
+            result.setdefault(key, 0.0)
+            result[key] += cond_prob * value
+        for key, value in self.else_.probability_table().items():
+            result.setdefault(key, 0.0)
+            result[key] += (1 - cond_prob) * value
+        return result
+
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        expanded_cond, cond_expanded = self.if_.expand()
+        expanded_then, then_expanded = self.then.expand()
+        expanded_else, else_expanded = self.else_.expand()
+        return (
+            self.__class__(expanded_cond, expanded_then, expanded_else),
+            cond_expanded or then_expanded or else_expanded,
+        )
+
+    def __repr__(self) -> str:
+        return "if %s then %s else %s" % (self.if_, self.then, self.else_)
+
+    def as_sequence(self) -> Sequence:
+        ifte = self
+
+        class IFTESeq(Sequence):
+            def roll(self):
+                if ifte.if_.roll():
+                    return ifte.then.as_sequence().roll()
+                else:
+                    return ifte.else_.as_sequence().roll()
+
+            def constant(self) -> bool:
+                return ifte.constant()
+
+        return IFTESeq()

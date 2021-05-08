@@ -1,7 +1,10 @@
 ?start: expression
-?expression: op_lvl1
+?expression: op_lvl0
 
 // level 1 is lowest precendence, level 2 is higher precendence, etc.
+?op_lvl0: op_lvl1
+    | "if" op_lvl0 "then" op_lvl0 "else" op_lvl0 -> ifte
+
 ?op_lvl1: op_lvl2
     | op_lvl1 "and" op_lvl2 -> and_
     | op_lvl1 "or" op_lvl2 -> or_
