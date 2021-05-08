@@ -40,6 +40,23 @@ class _RollParser(lark.Transformer):
     fn_call = lambda self, name, arg: functions.resolve_function_call(name, arg)
     ifte = roll.IfThenElse
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.vars: typing.Dict[str, typing.List[roll.Var]] = {}
+
+    def let(self, var: str, value: roll.Expression, body: roll.Expression):
+        result = roll.Let(var, value, body)
+        for var_expr in self.vars.get(var, []):
+            var_expr.let = result
+        self.vars.get(var, []).clear()
+        return result
+
+    def var(self, var: str):
+        result = roll.Var(name=var)
+        self.vars.setdefault(var, [])
+        self.vars[var].append(result)
+        return result
+
 
 _grammar_file = os.path.join(os.path.dirname(__file__), "roll.lark")
 _grammar = calc_parser = lark.Lark(open(_grammar_file), parser="lalr")

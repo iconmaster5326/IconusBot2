@@ -189,6 +189,8 @@ Result:
         X drop worst Y - rolls X, and drops the worst Y results.
                          also try "drop best" and "keep worst".
         if C then X else Y - if C is true, roll X, else roll Y.
+        let V = X in Y - sets the variable V to X, and then
+                         evaluates Y.
         
     For a list of other functions you can use, call !rollhelp.
 """,
@@ -196,13 +198,13 @@ Result:
 async def roll_(ctx: commands.Context, *args: str):
     try:
         result = roll_parser.parse(" ".join(args))
-        message = "Input: %s\n" % result
+        message = "**Input:** %s\n" % result
         needs_further_expansion = True
         while needs_further_expansion:
             result, needs_further_expansion = result.expand()
             if needs_further_expansion:
-                message += "= %s\n" % result
-        await ctx.send(message + "Result: %s" % (result.roll(),))
+                message += "**=>** %s\n" % result
+        await ctx.send(message + "**Result:** %s" % (result.roll(),))
     except DiceRollError as e:
         await ctx.send("Error in input: %s" % e.args[0])
     except BaseException as e:

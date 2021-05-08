@@ -4,6 +4,7 @@
 // level 1 is lowest precendence, level 2 is higher precendence, etc.
 ?op_lvl0: op_lvl1
     | "if" op_lvl0 "then" op_lvl0 "else" op_lvl0 -> ifte
+    | "let" CNAME "=" op_lvl0 "in" op_lvl0 -> let
 
 ?op_lvl1: op_lvl2
     | op_lvl1 "and" op_lvl2 -> and_
@@ -39,6 +40,7 @@
     | CNAME op_lvl7 -> fn_call
 
 ?op_lvl8: NUMBER -> number
+    | CNAME -> var
     | op_lvl8 /[dD]/ op_lvl8 -> dice_roll
     | "true" -> true
     | "false" -> false

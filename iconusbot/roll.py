@@ -114,6 +114,17 @@ class Sequence(Expression):
             raise DiceRollError("Maximum of '%s' cannot be computed" % self)
 
 
+class Constant(Expression):
+    def __init__(self, value):
+        self.value = value
+
+    def roll(self):
+        return self.value
+
+    def __repr__(self):
+        return str(self.value)
+
+
 class Number(Expression):
     def __init__(self, value):
         self.value = float(value)
@@ -122,7 +133,7 @@ class Number(Expression):
         return _Number(self.value)
 
     def __repr__(self):
-        return str(int(self.value) if int(self.value) == self.value else self.value)
+        return str(self.roll())
 
 
 class TrueValue(Expression):
@@ -419,9 +430,9 @@ class Eq(BinCompOp):
         if self.constant():
             return 1.0 if self.op(self.lhs.roll(), self.rhs.roll()) else 0.0
         elif self.lhs.constant():
-            return self.rhs.probability_table()[self.lhs.roll()]
+            return self.rhs.probability_table().get(self.lhs.roll(), 0.0)
         elif self.rhs.constant():
-            return self.lhs.probability_table()[self.rhs.roll()]
+            return self.lhs.probability_table().get(self.rhs.roll(), 0.0)
         else:
             table1 = self.lhs.probability_table()
             table2 = self.rhs.probability_table()
@@ -714,3 +725,120 @@ class IfThenElse(Expression):
                 return ifte.constant()
 
         return IFTESeq()
+
+
+class Let(Expression):
+    def __init__(self, name: str, value: Expression, body: Expression) -> None:
+        self.name = name
+        self.value = value
+        self.body = body
+        self._cached_value = None
+
+    def roll(self):
+        self._cached_value = self.value.roll()
+        result = self.body.roll()
+        self._cached_value = None
+        return result
+
+    def probability(self) -> float:
+        result = 0.0
+        for key, value in self.value.probability_table().items():
+            self._cached_value = key
+            result += self.body.probability() * value
+        self._cached_value = None
+        return result
+
+    def mean(self) -> float:
+        return self.body.mean()
+
+    def min(self) -> float:
+        return self.body.min()
+
+    def max(self) -> float:
+        return self.body.max()
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        result = {}
+        for key, value in self.value.probability_table().items():
+            self._cached_value = key
+            for evaluated_key, evaluated_value in self.body.probability_table().items():
+                result.setdefault(evaluated_key, 0.0)
+                result[evaluated_key] += evaluated_value * value
+        self._cached_value = None
+        return result
+
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        expanded_value, value_expanded = self.value.expand()
+        if value_expanded:
+            self.value = expanded_value
+            self.body, _ = self.body.expand()
+            return self, True
+        else:
+            self._cached_value = expanded_value.roll()
+            result = self.body.expand()
+            self._cached_value = None
+            return result
+
+    def __repr__(self) -> str:
+        return "let %s = %s in %s" % (self.name, self.value, self.body)
+
+
+class Var(Expression):
+    def __init__(
+        self, *, name: typing.Optional[str] = None, let: typing.Optional[Let] = None
+    ) -> None:
+        if name is None and let is not None:
+            self.name = let.name
+        else:
+            self.name = name
+        self.let = let
+
+    def constant(self) -> bool:
+        if self.let is None:
+            raise DiceRollError("Unknown variable %s" % self.name)
+        return self.let.value.constant()
+
+    def roll(self):
+        if self.let is None:
+            raise DiceRollError("Unknown variable %s" % self.name)
+        if self.let._cached_value is None:
+            return self.let.value.roll()
+        return self.let._cached_value
+
+    def probability(self):
+        if self.let is None:
+            raise DiceRollError("Unknown variable %s" % self.name)
+        return self.let.value.probability()
+
+    def mean(self):
+        if self.let is None:
+            raise DiceRollError("Unknown variable %s" % self.name)
+        return self.let.value.mean()
+
+    def min(self):
+        if self.let is None:
+            raise DiceRollError("Unknown variable %s" % self.name)
+        return self.let.value.min()
+
+    def max(self):
+        if self.let is None:
+            raise DiceRollError("Unknown variable %s" % self.name)
+        return self.let.value.max()
+
+    def probability_table_impl(self):
+        if self.let is None:
+            raise DiceRollError("Unknown variable %s" % self.name)
+        elif self.let._cached_value is None:
+            return self.let.value.probability_table()
+        else:
+            return {self.let._cached_value: 1.0}
+
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        if self.let is None:
+            raise DiceRollError("Unknown variable %s" % self.name)
+        if self.let._cached_value is None:
+            return self, False
+        return Constant(self.let._cached_value), True
+
+    def __repr__(self) -> str:
+        return str(self.name)
