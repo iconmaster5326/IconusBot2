@@ -1,3 +1,6 @@
+import asyncio
+import os
+import shutil
 import discord
 from discord import activity
 from iconusbot.roll import DiceRollError
@@ -9,12 +12,17 @@ import iconusbot.roll as roll
 import iconusbot.functions as roll_functions
 import iconusbot.roll_parser as roll_parser
 import random
+import yaml
 
 client = commands.Bot(
     command_prefix="!",
     activity=discord.Game(name="!help"),
     status=discord.Status.idle,
 )
+
+
+def is_admin(ctx: commands.Context) -> bool:
+    return ctx.author.id in settings["admins"]
 
 
 @client.event
@@ -197,14 +205,20 @@ Result:
 )
 async def roll_(ctx: commands.Context, *args: str):
     try:
-        result = roll_parser.parse(" ".join(args))
-        message = "**Input:** %s\n" % result
-        needs_further_expansion = True
-        while needs_further_expansion:
-            result, needs_further_expansion = result.expand()
-            if needs_further_expansion:
-                message += "**=>** %s\n" % result
-        await ctx.send(message + "**Result:** %s" % (result.roll(),))
+
+        async def roll_impl():
+            result = roll_parser.parse(" ".join(args))
+            message = "**Input:** %s\n" % result
+            needs_further_expansion = True
+            while needs_further_expansion:
+                result, needs_further_expansion = result.expand()
+                if needs_further_expansion:
+                    message += "**=>** %s\n" % result
+            await ctx.send(message + "**Result:** %s" % (result.roll(),))
+
+        await asyncio.wait_for(roll_impl(), timeout=settings["timeout"])
+    except TimeoutError:
+        await ctx.send("Your roll took too long to evaluate. Sorry!")
     except DiceRollError as e:
         await ctx.send("Error in input: %s" % e.args[0])
     except BaseException as e:
@@ -246,8 +260,26 @@ async def rollhelp(ctx: commands.Context, *args: str):
                 await ctx.send("```\n" + fn.help() + "\n```")
 
 
+settings: typing.Dict[str, typing.Any]
+
+
 def main(argv: typing.List[str] = sys.argv) -> int:
-    client.run(open("token.txt").read())
+    if not os.path.exists("settings.yaml"):
+        shutil.copy(
+            os.path.join(os.path.dirname(__file__), "settings.default.yaml"),
+            "settings.yaml",
+        )
+        print(
+            "settings.yaml not detected!"
+            " A default one has been provided."
+            " Please edit that file and re-run this program."
+        )
+        return 1
+
+    global settings
+    settings = yaml.safe_load(open("settings.yaml"))
+
+    client.run(settings["token"])
     return 0
 
 

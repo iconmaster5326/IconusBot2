@@ -1,4 +1,5 @@
 token.txt
+settings.yaml
 __pycache__/
 *.pyc
 /.vscode/

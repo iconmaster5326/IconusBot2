@@ -1,0 +1,6 @@
+token: "YOUR TOKEN HERE"
+admins:
+  - "118758386190909440"
+timeout: 60 # seconds
+max-jobs: 10
+max-rolldefs-per-user: 10
