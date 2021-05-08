@@ -1,0 +1,50 @@
+?start: expression
+?expression: op_lvl1
+
+// level 1 is lowest precendence, level 2 is higher precendence, etc.
+?op_lvl1: op_lvl2
+    | op_lvl1 "and" op_lvl2 -> and_
+    | op_lvl1 "or" op_lvl2 -> or_
+
+?op_lvl2: op_lvl3
+    | op_lvl2 "==" op_lvl3 -> eq
+    | op_lvl2 "!=" op_lvl3 -> ne
+    | op_lvl2 "<" op_lvl3 -> lt
+    | op_lvl2 "<=" op_lvl3 -> le
+    | op_lvl2 ">" op_lvl3 -> gt
+    | op_lvl2 ">=" op_lvl3 -> ge
+
+?op_lvl3: op_lvl4
+    | op_lvl3 "+" op_lvl4 -> add
+    | op_lvl3 "-" op_lvl4 -> sub
+
+?op_lvl4: op_lvl5
+    | op_lvl4 "*" op_lvl5 -> mul
+    | op_lvl4 "/" op_lvl5 -> div
+
+?op_lvl5: op_lvl6
+    | "-" op_lvl5 -> neg
+    | "not" op_lvl5 -> not_
+
+?op_lvl6: op_lvl7
+    | op_lvl6 "drop" "worst" op_lvl7 -> drop_worst
+    | op_lvl6 "drop" "best" op_lvl7 -> drop_best
+    | op_lvl6 "keep" "worst" op_lvl7 -> keep_worst
+    | op_lvl6 "keep" "best" op_lvl7 -> keep_best
+
+?op_lvl7: op_lvl8
+    | CNAME op_lvl7 -> fn_call
+
+?op_lvl8: NUMBER -> number
+    | op_lvl8 /[dD]/ op_lvl8 -> dice_roll
+    | "true" -> true
+    | "false" -> false
+    | "(" ")" -> tuple_0
+    | "(" expression "," ")" -> tuple_1
+    | "(" expression ("," expression)+ ","? ")" -> tuple_n
+    | "(" expression ")"
+
+%import common.NUMBER
+%import common.WS
+%import common.CNAME
+%ignore WS
