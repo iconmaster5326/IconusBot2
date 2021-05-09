@@ -13,32 +13,32 @@ class _RollParser(lark.Transformer):
     mul = roll.Mul
     div = roll.Div
     neg = roll.Neg
-    dice_roll = lambda self, lhs, _, rhs: roll.DiceRoll(lhs, rhs)
+    dice = roll.Dice
+    die_number = lambda self, _, *args: roll.DieNumber(*args)
+    die_sequence_0 = lambda self, _, *args: roll.DieSequence(roll.Tuple(*args))
+    die_sequence_n = lambda self, _, *args: roll.DieSequence(roll.Tuple(*args))
     true = roll.TrueValue
     false = roll.FalseValue
-    probability_of = lambda self, _, arg: functions.ProbabilityOf(arg)
     eq = roll.Eq
     ne = roll.Ne
     lt = roll.Lt
     le = roll.Le
     gt = roll.Gt
     ge = roll.Ge
-    probtab = functions.ProbTab
     drop_worst = roll.DropWorst
     drop_best = roll.DropBest
     keep_worst = roll.KeepWorst
     keep_best = roll.KeepBest
-    mean = functions.Mean
     and_ = roll.And
     or_ = roll.Or
     not_ = roll.Not
-    min = functions.Min
-    max = functions.Max
     tuple_0 = roll.Tuple
     tuple_1 = roll.Tuple
     tuple_n = roll.Tuple
     fn_call = lambda self, name, arg: functions.resolve_function_call(name, arg)
     ifte = roll.IfThenElse
+    range = roll.Range
+    unpack = roll.Unpack
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

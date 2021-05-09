@@ -191,6 +191,7 @@ Parameters:
 Result:
     Evaluates a dice expression. You can use usual XdY notation, basic math,
     and some more unique operations. These include:
+        d{X,Y,Z} - Roll a die with the faces X, Y, and Z.
         p(X) - calculates the probability of X.
                You can use conditions in here (==, !=, >=, etc.),
                as well as boolean operations (and, or, not, etc.).
@@ -199,6 +200,8 @@ Result:
         if C then X else Y - if C is true, roll X, else roll Y.
         let V = X in Y - sets the variable V to X, and then
                          evaluates Y.
+        (1,2,3) - Creates a sequence of values.
+        d{1,\\*(2,3),4} - The same as d{1,2,3,4}.
         
     For a list of other functions you can use, call !rollhelp.
 """,

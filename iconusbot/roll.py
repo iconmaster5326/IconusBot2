@@ -1,5 +1,6 @@
 import random
 import typing
+import itertools
 
 
 class _Number(float):
@@ -158,15 +159,77 @@ class FalseValue(Expression):
         return "false"
 
 
+class Unpack:
+    def __init__(self, value: Expression) -> None:
+        self.value = value
+
+    def __repr__(self) -> str:
+        return "\\*%s" % self.value
+
+    def constant(self) -> bool:
+        return self.value.constant()
+
+    def expand(self) -> typing.Tuple[Expression, bool]:
+        return self.value.as_sequence().expand()
+
+
 class Tuple(Sequence):
-    def __init__(self, *args: Expression) -> None:
+    def __init__(self, *args: typing.Union[Expression, Unpack]) -> None:
         self.args = tuple(args)
 
+    def _roll_arg(self, arg: typing.Union[Expression, Unpack]) -> typing.Tuple:
+        if isinstance(arg, Unpack):
+            return arg.value.as_sequence().roll()
+        else:
+            return (arg.roll(),)
+
     def roll(self):
-        return tuple(arg.roll() for arg in self.args)
+        return tuple(
+            itertools.chain.from_iterable(self._roll_arg(arg) for arg in self.args)
+        )
 
     def __repr__(self):
         return "(" + ", ".join(str(arg) for arg in self.args) + ")"
+
+    def constant(self) -> bool:
+        return all(arg.constant() for arg in self.args)
+
+    def expand(self) -> typing.Tuple["Tuple", bool]:
+        expanded_args = []
+        args_expanded = False
+        for arg in self.args:
+            expanded_arg, arg_expanded = arg.expand()
+            if arg_expanded:
+                args_expanded = True
+            if isinstance(arg, Unpack):
+                expanded_args.append(Unpack(expanded_arg))
+            else:
+                expanded_args.append(expanded_arg)
+
+        return self.__class__(*expanded_args), args_expanded
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        if len(self.args) == 0:
+            return {(): 1.0}
+
+        head = self.args[0]
+        if isinstance(head, Unpack):
+            probtab_head = head.value.as_sequence().probability_table()
+        else:
+            probtab_head = head.probability_table()
+
+        probtab_tail = Tuple(*self.args[1:]).probability_table()
+        result = {}
+
+        for key_head, value_head in probtab_head.items():
+            for key_tail, value_tail in probtab_tail.items():
+                if isinstance(head, Unpack):
+                    new_key = (*key_head, *key_tail)
+                else:
+                    new_key = (key_head, *key_tail)
+                result.setdefault(new_key, 0.0)
+                result[new_key] += value_head * value_tail
+        return result
 
 
 class BiMathOp(Expression):
@@ -295,82 +358,202 @@ def _get_die_probabilities(n_dice: int, n_faces: int) -> typing.Dict[int, float]
         return result
 
 
-class DiceRoll(Expression):
-    def __init__(self, lhs: Expression, rhs: Expression):
-        self.lhs = lhs
-        self.rhs = rhs
+class Range(Sequence):
+    def __init__(
+        self,
+        from_: Expression,
+        to: Expression,
+        step: typing.Optional[Expression] = None,
+    ) -> None:
+        self.from_ = from_
+        self.to = to
+        self.step = step
 
     def roll(self):
-        n_dice = int(self.lhs.roll())
-        die_size = int(self.rhs.roll())
-        result = 0
-        for _ in range(n_dice):
-            result += random.randint(1, die_size)
-        return _Number(result)
+        step = 1 if self.step is None else int(self.step.roll())
+        return tuple(
+            range(
+                int(self.from_.roll()),
+                int(self.to.roll()) + (-1 if step < 0 else 1),
+                step,
+            )
+        )
 
     def constant(self) -> bool:
-        return False
-
-    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
-        if self.lhs.constant() and self.rhs.constant():
-            return _get_die_probabilities(int(self.lhs.roll()), int(self.rhs.roll()))
-        else:
-            table1 = self.lhs.probability_table()
-            table2 = self.rhs.probability_table()
-            result: typing.Dict[typing.Any, float] = {}
-            for key1, value1 in table1.items():
-                for key2, value2 in table2.items():
-                    for key3, value3 in _get_die_probabilities(key1, key2).items():
-                        result.setdefault(key3, 0.0)
-                        result[key3] += value1 * value2 * value3
-            return result
-
-    def as_sequence(self) -> Sequence:
-        dice_roll = self
-
-        class DiceRollSeq(Sequence):
-            def roll(self):
-                return tuple(
-                    DiceRoll(Number(1), dice_roll.rhs).roll()
-                    for _ in range(int(dice_roll.lhs.roll()))
-                )
-
-            def constant(self) -> bool:
-                return False
-
-        return DiceRollSeq()
+        return (
+            self.from_.constant()
+            and self.to.constant()
+            and (True if self.step is None else self.step.constant())
+        )
 
     def expand(self) -> typing.Tuple["Expression", bool]:
-        expanded_lhs, lhs_expanded = self.lhs.expand()
-        expanded_rhs, rhs_expanded = self.rhs.expand()
-        if lhs_expanded or rhs_expanded:
-            return DiceRoll(expanded_lhs, expanded_rhs), lhs_expanded or rhs_expanded
+        expanded_from, from_expanded = self.from_.expand()
+        expanded_to, to_expanded = self.to.expand()
+        expanded_step, step_expanded = (
+            (None, False) if self.step is None else self.step.expand()
+        )
+
+        return (
+            self.__class__(expanded_from, expanded_to, expanded_step),
+            from_expanded or to_expanded or step_expanded,
+        )
+
+    def __repr__(self) -> str:
+        return "%s to %s" % (self.from_, self.to) + (
+            "" if self.step is None else " by %s" % self.step
+        )
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        result = {}
+        for from_key, from_value in self.from_.probability_table().items():
+            for to_key, to_value in self.to.probability_table().items():
+                for step_key, step_value in (
+                    (Number(1) if self.step is None else self.step)
+                    .probability_table()
+                    .items()
+                ):
+                    new_key = tuple(
+                        range(
+                            int(from_key),
+                            int(to_key) + (-1 if step_key < 0 else 1),
+                            step_key,
+                        )
+                    )
+                    result.setdefault(new_key, 0.0)
+                    result[new_key] += from_value * to_value * step_value
+        return result
+
+
+class Die(Expression):
+    pass
+
+
+class DieSequence(Die):
+    def __init__(self, sequence: Tuple) -> None:
+        self.sequence = sequence
+
+    def roll(self):
+        xs = self.sequence.as_sequence().roll()
+        if len(xs) == 0:
+            raise DiceRollError("attempted to roll d{}")
+        return random.choice(xs)
+
+    def constant(self) -> bool:
+        return self.sequence.constant() and len(self.sequence.as_sequence().roll()) <= 1
+
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        expanded_seq, seq_expanded = self.sequence.expand()
+        if seq_expanded:
+            return self.__class__(expanded_seq), True
         else:
-            zero = Number(0)
-            result = zero
-            for die in (
-                DiceRoll(Number(1), self.rhs) for _ in range(int(self.lhs.roll()))
-            ):
-                if result == zero:
-                    result = Number(die.roll())
-                else:
-                    result = Add(result, Number(die.roll()))
-            return result, True
+            return Constant(self.roll()), True
 
-    def __repr__(self):
-        return "%sd%s" % (self.lhs, self.rhs)
+    def __repr__(self) -> str:
+        return "d{%s}" % ", ".join(str(x) for x in self.sequence.args)
 
-    def mean(self) -> float:
-        if self.lhs.constant() and self.rhs.constant():
-            return ((self.rhs.roll() + 1) / 2) * self.lhs.roll()
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        if self.sequence.constant():
+            seq = self.sequence.roll()
+            return {v: 1 / len(seq) for v in seq}
         else:
-            return super().mean()
+            result = {}
+            for key, value in self.sequence.probability_table().items():
+                for new_key in key:
+                    result.setdefault(new_key, 0.0)
+                    result[new_key] += value * 1 / len(key)
+            return result
 
-    def min(self) -> float:
-        return self.lhs.min()
 
-    def max(self) -> float:
-        return self.lhs.max() * self.rhs.max()
+class DieNumber(Die):
+    def __init__(self, number: Expression) -> None:
+        self.number = number
+
+    def constant(self) -> bool:
+        return self.number.constant() and self.number.roll() <= 1
+
+    def roll(self):
+        n = self.number.roll()
+        if not isinstance(n, float) and not isinstance(n, int):
+            raise DiceRollError("number expected, got %s" % n)
+        if n < 1:
+            raise DiceRollError("attempted to roll a die with %s faces" % n)
+        return random.randint(1, int(n))
+
+    def __repr__(self) -> str:
+        return "d%s" % self.number
+
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        expanded_seq, seq_expanded = self.number.expand()
+        if seq_expanded:
+            return self.__class__(expanded_seq), True
+        else:
+            return Constant(self.roll()), True
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        if self.number.constant():
+            n = self.number.roll()
+            return {i: 1 / n for i in range(1, int(n) + 1)}
+        else:
+            result = {}
+            for key, value in self.number.probability_table().items():
+                for i in range(1, int(key) + 1):
+                    result.setdefault(i, 0.0)
+                    result[i] += value * 1 / key
+            return result
+
+
+class Dice(Expression):
+    def __init__(self, n_dice: Expression, dice: Die) -> None:
+        self.n_dice = n_dice
+        self.dice = dice
+
+    def roll(self):
+        return sum(self.as_sequence().roll())
+
+    def constant(self) -> bool:
+        return self.n_dice.constant() and self.dice.constant()
+
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        class ExpandedDice(Tuple):
+            def roll(self):
+                return sum(super().roll())
+
+            def __repr__(self) -> str:
+                return (
+                    "0"
+                    if len(self.args) == 0
+                    else " + ".join(str(x) for x in self.args)
+                )
+
+            def as_sequence(self) -> Sequence:
+                return Tuple(*self.args)
+
+        expanded_lhs, lhs_expanded = self.n_dice.expand()
+        if lhs_expanded:
+            return self.__class__(expanded_lhs, self.dice), True
+        else:
+            n_dice = int(expanded_lhs.roll())
+            if n_dice == 1:
+                return Constant(self.dice.roll()), True
+            else:
+                return (
+                    ExpandedDice(*(Constant(x.roll()) for x in [self.dice] * n_dice)),
+                    True,
+                )
+
+    def __repr__(self) -> str:
+        return "%s%s" % (self.n_dice, self.dice)
+
+    def as_sequence(self) -> Sequence:
+        return Tuple(*([self.dice] * int(self.n_dice.roll())))
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        result = {}
+        for key, value in self.as_sequence().probability_table().items():
+            new_key = sum(key)
+            result.setdefault(new_key, 0.0)
+            result[new_key] += value
+        return result
 
 
 class BinCompOp(Expression):

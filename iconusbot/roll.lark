@@ -10,13 +10,16 @@
     | op_lvl1 "and" op_lvl2 -> and_
     | op_lvl1 "or" op_lvl2 -> or_
 
-?op_lvl2: op_lvl3
-    | op_lvl2 "==" op_lvl3 -> eq
-    | op_lvl2 "!=" op_lvl3 -> ne
-    | op_lvl2 "<" op_lvl3 -> lt
-    | op_lvl2 "<=" op_lvl3 -> le
-    | op_lvl2 ">" op_lvl3 -> gt
-    | op_lvl2 ">=" op_lvl3 -> ge
+?op_lvl2: op_lvl2b
+    | op_lvl2 "==" op_lvl2b -> eq
+    | op_lvl2 "!=" op_lvl2b -> ne
+    | op_lvl2 "<" op_lvl2b -> lt
+    | op_lvl2 "<=" op_lvl2b -> le
+    | op_lvl2 ">" op_lvl2b -> gt
+    | op_lvl2 ">=" op_lvl2b -> ge
+
+?op_lvl2b: op_lvl3
+    | op_lvl2b "to" op_lvl3 ["by" op_lvl3] -> range
 
 ?op_lvl3: op_lvl4
     | op_lvl3 "+" op_lvl4 -> add
@@ -40,14 +43,24 @@
     | CNAME op_lvl7 -> fn_call
 
 ?op_lvl8: NUMBER -> number
+    | op_lvl8 die -> dice
+    | die
     | CNAME -> var
-    | op_lvl8 /[dD]/ op_lvl8 -> dice_roll
     | "true" -> true
     | "false" -> false
     | "(" ")" -> tuple_0
-    | "(" expression "," ")" -> tuple_1
-    | "(" expression ("," expression)+ ","? ")" -> tuple_n
+    | "(" tuple_element "," ")" -> tuple_1
+    | "(" tuple_element ("," tuple_element)+ ","? ")" -> tuple_n
     | "(" expression ")"
+
+?die: D op_lvl8 -> die_number
+    | D "{" "}" -> die_sequence_0
+    | D "{" tuple_element ("," tuple_element)* ","? "}" -> die_sequence_n
+
+?tuple_element: expression
+    | "*" expression -> unpack
+
+D.1000: /[dD]/
 
 %import common.NUMBER
 %import common.WS
