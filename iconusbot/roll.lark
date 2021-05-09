@@ -32,6 +32,7 @@
 ?op_lvl5: op_lvl6
     | "-" op_lvl5 -> neg
     | "not" op_lvl5 -> not_
+    | "#" op_lvl5 -> count
 
 ?op_lvl6: op_lvl7
     | op_lvl6 "drop" "worst" op_lvl7 -> drop_worst

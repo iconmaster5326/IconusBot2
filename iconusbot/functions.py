@@ -1,4 +1,4 @@
-from .roll import _Number, Expression, DiceRollError, EvaluatedSequence
+from .roll import _Number, Expression, DiceRollError
 import typing
 
 
@@ -35,9 +35,9 @@ class ExpandableFnOp(FnOp):
 
 class SeqFnOp(FnOp):
     def expand(self) -> typing.Tuple["Expression", bool]:
-        _, arg_expanded = self.arg.expand()
+        expanded_arg, arg_expanded = self.arg.as_sequence().expand()
         return (
-            self.__class__(EvaluatedSequence(*self.arg.as_sequence().roll())),
+            self.__class__(expanded_arg),
             arg_expanded,
         )
 

@@ -202,6 +202,7 @@ Result:
                          evaluates Y.
         (1,2,3) - Creates a sequence of values.
         d{1,\\*(2,3),4} - The same as d{1,2,3,4}.
+        #X - Get the length of the sequence or XdY expression X.
         
     For a list of other functions you can use, call !rollhelp.
 """,

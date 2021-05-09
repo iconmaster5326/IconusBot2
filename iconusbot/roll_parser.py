@@ -39,6 +39,7 @@ class _RollParser(lark.Transformer):
     ifte = roll.IfThenElse
     range = roll.Range
     unpack = roll.Unpack
+    count = roll.Count
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

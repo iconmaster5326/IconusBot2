@@ -90,7 +90,7 @@ class Sequence(Expression):
                 return _mean(self.roll())
             else:
                 result = 0.0
-                for key, value in self.probability_table():
+                for key, value in self.probability_table().items():
                     result += _mean(key) * value
                 return result
         except DiceRollError:
@@ -342,6 +342,32 @@ class Neg(Expression):
         return -self.lhs.max()
 
 
+class Count(Expression):
+    def __init__(self, lhs: Expression):
+        self.lhs = lhs
+
+    def roll(self):
+        return _Number(len(self.lhs.as_sequence().roll()))
+
+    def constant(self) -> bool:
+        return self.lhs.constant()
+
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        expanded_lhs, lhs_expanded = self.lhs.as_sequence().expand()
+        return Count(expanded_lhs), lhs_expanded
+
+    def __repr__(self):
+        return "#%s" % self.lhs
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        result = {}
+        for key, value in self.lhs.as_sequence().probability_table().items():
+            new_key = len(key)
+            result.setdefault(new_key, 0.0)
+            result[new_key] += value
+        return result
+
+
 class Range(Sequence):
     def __init__(
         self,
@@ -500,8 +526,16 @@ class DieNumber(Die):
     def max(self) -> float:
         return self.number.max()
 
-    def mean(self) -> float:
-        return 1.0 + (self.max() - 1.0) / 2
+
+class ExpandedDice(Tuple):
+    def roll(self):
+        return sum(super().roll())
+
+    def __repr__(self) -> str:
+        return "0" if len(self.args) == 0 else " + ".join(str(x) for x in self.args)
+
+    def as_sequence(self) -> Sequence:
+        return Tuple(*self.args)
 
 
 class Dice(Expression):
@@ -510,26 +544,12 @@ class Dice(Expression):
         self.dice = dice
 
     def roll(self):
-        return sum(self.as_sequence().roll())
+        return sum(self.dice.roll() for _ in range(int(self.n_dice.roll())))
 
     def constant(self) -> bool:
         return self.n_dice.constant() and self.dice.constant()
 
     def expand(self) -> typing.Tuple["Expression", bool]:
-        class ExpandedDice(Tuple):
-            def roll(self):
-                return sum(super().roll())
-
-            def __repr__(self) -> str:
-                return (
-                    "0"
-                    if len(self.args) == 0
-                    else " + ".join(str(x) for x in self.args)
-                )
-
-            def as_sequence(self) -> Sequence:
-                return Tuple(*self.args)
-
         expanded_lhs, lhs_expanded = self.n_dice.expand()
         if lhs_expanded:
             return self.__class__(expanded_lhs, self.dice), True
@@ -547,7 +567,34 @@ class Dice(Expression):
         return "%s%s" % (self.n_dice, self.dice)
 
     def as_sequence(self) -> Sequence:
-        return Tuple(*([self.dice] * int(self.n_dice.roll())))
+        if self.n_dice.constant():
+            return Tuple(*([self.dice] * int(self.n_dice.roll())))
+        else:
+            dice = self
+
+            class DiceSequence(Sequence):
+                def roll(self):
+                    return tuple(
+                        dice.dice.roll() for _ in range(int(dice.n_dice.roll()))
+                    )
+
+                def constant(self) -> bool:
+                    return dice.constant()
+
+                def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+                    result = {}
+                    for n_key, n_value in dice.n_dice.probability_table().items():
+                        for seq_key, seq_value in (
+                            Dice(Number(n_key), dice.dice)
+                            .as_sequence()
+                            .probability_table_impl()
+                            .items()
+                        ):
+                            result.setdefault(seq_key, 0.0)
+                            result[seq_key] += n_value * seq_value
+                    return result
+
+            return DiceSequence()
 
     def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
         result = {}
