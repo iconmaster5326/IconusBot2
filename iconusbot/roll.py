@@ -342,22 +342,6 @@ class Neg(Expression):
         return -self.lhs.max()
 
 
-def _get_die_probabilities(n_dice: int, n_faces: int) -> typing.Dict[int, float]:
-    if n_dice == 1:
-        return {face: 1.0 / n_faces for face in range(1, n_faces + 1)}
-    else:
-        result_minus1 = _get_die_probabilities(n_dice - 1, n_faces)
-        result = {}
-        for total, prob in result_minus1.items():
-            for face in range(1, n_faces + 1):
-                new_key = total + face
-                new_value = prob * 1.0 / n_faces
-
-                result.setdefault(new_key, 0)
-                result[new_key] += new_value
-        return result
-
-
 class Range(Sequence):
     def __init__(
         self,
@@ -463,6 +447,15 @@ class DieSequence(Die):
                     result[new_key] += value * 1 / len(key)
             return result
 
+    def min(self) -> float:
+        return self.sequence.min()
+
+    def max(self) -> float:
+        return self.sequence.max()
+
+    def mean(self) -> float:
+        return self.sequence.mean()
+
 
 class DieNumber(Die):
     def __init__(self, number: Expression) -> None:
@@ -500,6 +493,15 @@ class DieNumber(Die):
                     result.setdefault(i, 0.0)
                     result[i] += value * 1 / key
             return result
+
+    def min(self) -> float:
+        return 1.0
+
+    def max(self) -> float:
+        return self.number.max()
+
+    def mean(self) -> float:
+        return 1.0 + (self.max() - 1.0) / 2
 
 
 class Dice(Expression):
@@ -554,6 +556,12 @@ class Dice(Expression):
             result.setdefault(new_key, 0.0)
             result[new_key] += value
         return result
+
+    def min(self) -> float:
+        return self.n_dice.min() * self.dice.min()
+
+    def max(self) -> float:
+        return self.n_dice.max() * self.dice.max()
 
 
 class BinCompOp(Expression):
