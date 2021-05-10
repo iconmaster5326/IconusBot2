@@ -11,6 +11,14 @@ class _Number(float):
         return result
 
 
+class ImageResult:
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+    
+    def __repr__(self) -> str:
+        return ""
+
+
 class DiceRollError(ValueError):
     pass
 

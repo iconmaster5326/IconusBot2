@@ -1,4 +1,5 @@
 import asyncio
+import io
 import os
 import shutil
 import discord
@@ -372,7 +373,13 @@ async def roll_(ctx: commands.Context, *args: str):
                 result, needs_further_expansion = result.expand()
                 if needs_further_expansion:
                     message += "**=>** %s\n" % result
-            await ctx.send(message + "**Result:** %s" % (result.roll(),))
+            rolled_result = result.roll()
+            await ctx.send(
+                message + "**Result:** %s" % (rolled_result,),
+                file=discord.File(io.BytesIO(rolled_result.data), filename="image.png")
+                if isinstance(rolled_result, roll.ImageResult)
+                else None,
+            )
 
         await asyncio.wait_for(roll_impl(), timeout=settings["timeout"])
     except TimeoutError:

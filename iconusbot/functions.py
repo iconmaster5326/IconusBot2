@@ -1,5 +1,8 @@
-from .roll import _Number, Expression, DiceRollError
+import io
+from .roll import ImageResult, Unpack, _Number, Expression, DiceRollError, Tuple
 import typing
+import plotly.express as px
+import pandas
 
 
 class _Percentage(float):
@@ -279,8 +282,64 @@ Examples:
 """
 
 
+class Plot(FnOp):
+    def roll(self):
+        KEY_VALUE = " value "
+
+        unparsed_data = self.arg.as_sequence()
+        raw_data = {KEY_VALUE: {}}
+        if not isinstance(unparsed_data, Tuple):
+            raise DiceRollError("plot must operate on a tuple")
+        for expr in unparsed_data.args:
+            if isinstance(expr, Unpack):
+                raise DiceRollError("Unpacks not yet supported in plot")
+            else:
+                probtab = expr.probability_table()
+                raw_data[KEY_VALUE].update({k: k for k in probtab})
+                raw_data[str(expr)] = probtab
+
+        data = pandas.DataFrame.from_dict(
+            {
+                data_key: [
+                    data_value.get(table_key, 0.0) for table_key in raw_data[KEY_VALUE]
+                ]
+                for data_key, data_value in raw_data.items()
+            }
+        )
+        fig = px.bar(data, x=KEY_VALUE, y=data.columns[1:], barmode="overlay")
+        fig.update_yaxes(title_text="probability", tickformat="%")
+        stream = io.BytesIO()
+        fig.write_image(file=stream, format="png")
+        return ImageResult(stream.getvalue())
+
+    @classmethod
+    def name(cls):
+        return "plot"
+
+    @classmethod
+    def description(cls) -> str:
+        return "produce a probability graph"
+
+    @classmethod
+    def help(cls) -> str:
+        return """plot <seq>
+
+Arguments:
+    seq - A sequence of dice rolls
+
+Result:
+    Produces a graph comparing the probability
+    distrobutions of all the given dice rolls.
+
+Examples:
+    !roll plot(2d6,)
+    !roll plot(1d20,3d6)
+"""
+
+
 NAMES_TO_FUNCTIONS: typing.Dict[str, typing.Type[FnOp]] = {
-    fn.name(): fn for fn in (ProbabilityOf, Mean, Min, Max, ProbTab, Seq, Sum, Product)
+    fn.name(): fn
+    for fn in (ProbabilityOf, Mean, Min, Max, ProbTab, Seq, Sum, Product, Plot)
 }
 
 
