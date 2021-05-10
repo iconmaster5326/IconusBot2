@@ -1,11 +1,7 @@
 ?start: expression
-?expression: op_lvl0
+?expression: op_lvl1
 
 // level 1 is lowest precendence, level 2 is higher precendence, etc.
-?op_lvl0: op_lvl1
-    | "if" op_lvl0 "then" op_lvl0 "else" op_lvl0 -> ifte
-    | "let" CNAME "=" op_lvl0 "in" op_lvl0 -> let
-
 ?op_lvl1: op_lvl2
     | op_lvl1 "and" op_lvl2 -> and_
     | op_lvl1 "or" op_lvl2 -> or_
@@ -42,6 +38,10 @@
 
 ?op_lvl7: op_lvl8
     | CNAME op_lvl7 -> fn_call
+    | "if" expression "then" expression "else" op_lvl7 -> ifte
+    | "let" CNAME "=" expression "in" op_lvl7 -> let
+    | "for" CNAME "in" expression ":" op_lvl7 -> for_
+    | "for" CNAME "in" expression "where" expression [":" op_lvl7] -> where_for
 
 ?op_lvl8: NUMBER -> number
     | op_lvl8 die -> dice
