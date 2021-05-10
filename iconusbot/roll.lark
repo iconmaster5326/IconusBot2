@@ -40,8 +40,6 @@
     | CNAME op_lvl7 -> fn_call
     | "if" expression "then" expression "else" op_lvl7 -> ifte
     | "let" CNAME "=" expression "in" op_lvl7 -> let
-    | "for" CNAME "in" expression ":" op_lvl7 -> for_
-    | "for" CNAME "in" expression "where" expression [":" op_lvl7] -> where_for
 
 ?op_lvl8: NUMBER -> number
     | op_lvl8 die -> dice
