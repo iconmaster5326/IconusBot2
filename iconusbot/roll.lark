@@ -61,9 +61,9 @@
 ?tuple_element: expression
     | "*" expression -> unpack
 
-D.1000: /[dD]/
+CNAME: /([dD][a-zA-Z_][a-zA-Z0-9_]*|[a-ce-zA-CE-Z_][a-zA-Z0-9_]*)/
+D: /[dD]/
 
 %import common.NUMBER
 %import common.WS
-%import common.CNAME
 %ignore WS

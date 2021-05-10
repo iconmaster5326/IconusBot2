@@ -14,7 +14,7 @@ class _Number(float):
 class ImageResult:
     def __init__(self, data: bytes) -> None:
         self.data = data
-    
+
     def __repr__(self) -> str:
         return ""
 
@@ -535,17 +535,6 @@ class DieNumber(Die):
         return self.number.max()
 
 
-class ExpandedDice(Tuple):
-    def roll(self):
-        return sum(super().roll())
-
-    def __repr__(self) -> str:
-        return "0" if len(self.args) == 0 else " + ".join(str(x) for x in self.args)
-
-    def as_sequence(self) -> Sequence:
-        return Tuple(*self.args)
-
-
 class Dice(Expression):
     def __init__(self, n_dice: Expression, dice: Die) -> None:
         self.n_dice = n_dice
@@ -558,6 +547,20 @@ class Dice(Expression):
         return self.n_dice.constant() and self.dice.constant()
 
     def expand(self) -> typing.Tuple["Expression", bool]:
+        class ExpandedDice(Tuple):
+            def roll(self):
+                return sum(super().roll())
+
+            def __repr__(self) -> str:
+                return (
+                    "0"
+                    if len(self.args) == 0
+                    else " + ".join(str(x) for x in self.args)
+                )
+
+            def as_sequence(self) -> Sequence:
+                return Tuple(*self.args)
+
         expanded_lhs, lhs_expanded = self.n_dice.expand()
         if lhs_expanded:
             return self.__class__(expanded_lhs, self.dice), True
@@ -742,6 +745,12 @@ class EvaluatedSequence(Sequence):
 
 
 class DropKeepOp(Expression):
+    def op(self, lhs: list, rhs: int) -> list:
+        raise NotImplementedError
+
+    def roll(self):
+        return _Number(sum(self.as_sequence().roll()))
+
     def __init__(self, lhs: Expression, rhs: Expression):
         self.lhs = lhs
         self.rhs = rhs
@@ -750,55 +759,77 @@ class DropKeepOp(Expression):
         return self.lhs.constant() and self.rhs.constant()
 
     def expand(self) -> typing.Tuple["Expression", bool]:
-        _, lhs_expanded = self.lhs.expand()
+        expanded_lhs, lhs_expanded = self.lhs.as_sequence().expand()
         expanded_rhs, rhs_expanded = self.rhs.expand()
         return (
-            self.__class__(
-                EvaluatedSequence(*self.lhs.as_sequence().roll()), expanded_rhs
-            ),
+            self.__class__(expanded_lhs, expanded_rhs),
             lhs_expanded or rhs_expanded,
         )
 
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        result = {}
+        for key, value in self.as_sequence().probability_table().items():
+            new_key = sum(key)
+            result.setdefault(new_key, 0.0)
+            result[new_key] += value
+        return result
+
+    def as_sequence(self) -> Sequence:
+        this = self
+
+        class DropKeepSeq(Sequence):
+            def roll(self):
+                values = list(this.lhs.as_sequence().roll())
+                values.sort()
+                n_to_drop = int(this.rhs.roll())
+                return tuple(this.op(values, n_to_drop))
+
+            def constant(self) -> bool:
+                return this.constant()
+
+            def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+                result = {}
+                for lhs_key, lhs_value in (
+                    this.lhs.as_sequence().probability_table().items()
+                ):
+                    for rhs_key, rhs_value in this.rhs.probability_table().items():
+                        xs = list(lhs_key)
+                        xs.sort()
+                        new_key = tuple(this.op(xs, int(rhs_key)))
+                        result.setdefault(new_key, 0.0)
+                        result[new_key] += lhs_value * rhs_value
+                return result
+
+        return DropKeepSeq()
+
 
 class DropWorst(DropKeepOp):
-    def roll(self):
-        values = list(self.lhs.as_sequence().roll())
-        values.sort()
-        n_to_drop = int(self.rhs.roll())
-        return _Number(sum(values[n_to_drop:]))
+    def op(self, lhs: list, rhs: float) -> list:
+        return lhs[rhs:]
 
     def __repr__(self):
         return "%s drop worst %s" % (self.lhs, self.rhs)
 
 
 class DropBest(DropKeepOp):
-    def roll(self):
-        values = list(self.lhs.as_sequence().roll())
-        values.sort()
-        n_to_drop = int(self.rhs.roll())
-        return _Number(sum(values[:-n_to_drop]))
+    def op(self, lhs: list, rhs: float) -> list:
+        return lhs[:-rhs]
 
     def __repr__(self):
         return "%s drop best %s" % (self.lhs, self.rhs)
 
 
 class KeepWorst(DropKeepOp):
-    def roll(self):
-        values = list(self.lhs.as_sequence().roll())
-        values.sort()
-        n_to_keep = int(self.rhs.roll())
-        return _Number(sum(values[:n_to_keep]))
+    def op(self, lhs: list, rhs: float) -> list:
+        return lhs[:rhs]
 
     def __repr__(self):
         return "%s keep worst %s" % (self.lhs, self.rhs)
 
 
 class KeepBest(DropKeepOp):
-    def roll(self):
-        values = list(self.lhs.as_sequence().roll())
-        values.sort()
-        n_to_keep = int(self.rhs.roll())
-        return _Number(sum(values[-n_to_keep:]))
+    def op(self, lhs: list, rhs: float) -> list:
+        return lhs[-rhs:]
 
     def __repr__(self):
         return "%s keep best %s" % (self.lhs, self.rhs)
