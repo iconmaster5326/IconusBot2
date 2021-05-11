@@ -559,16 +559,12 @@ class DieSequence(Die):
         return "d{%s}" % ", ".join(str(x) for x in self.sequence.args)
 
     def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
-        if self.sequence.constant():
-            seq = self.sequence.roll()
-            return {v: 1 / len(seq) for v in seq}
-        else:
-            result = {}
-            for key, value in self.sequence.probability_table().items():
-                for new_key in key:
-                    result.setdefault(new_key, 0.0)
-                    result[new_key] += value * 1 / len(key)
-            return result
+        result = {}
+        for key, value in self.sequence.probability_table().items():
+            for new_key in key:
+                result.setdefault(new_key, 0.0)
+                result[new_key] += value * 1 / len(key)
+        return result
 
     def min(self) -> float:
         return self.sequence.min()
