@@ -16,7 +16,7 @@ class ImageResult:
         self.data = data
 
     def __repr__(self) -> str:
-        return ""
+        return "📊"
 
 
 class DiceRollError(ValueError):

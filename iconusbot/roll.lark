@@ -47,6 +47,8 @@
     | CNAME -> var
     | "true" -> true
     | "false" -> false
+    | "'" "'" -> string_0
+    | "'" /[^']+/ "'" -> string
     | "(" ")" -> tuple_0
     | "(" tuple_element "," ")" -> tuple_1
     | "(" tuple_element ("," tuple_element)+ ","? ")" -> tuple_n

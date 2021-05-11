@@ -40,6 +40,8 @@ class _RollParser(lark.Transformer):
     range = roll.Range
     unpack = roll.Unpack
     count = roll.Count
+    string = lambda self, arg: roll.Constant(str(arg))
+    string_0 = lambda self: roll.Constant("")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
