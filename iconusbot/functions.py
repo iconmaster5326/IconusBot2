@@ -13,6 +13,13 @@ import plotly.express as px
 import pandas
 
 
+def product(xs: typing.Iterable):
+    result = 1
+    for x in xs:
+        result *= x
+    return result
+
+
 class _Percentage(float):
     def __repr__(self) -> str:
         return f"{_Number(self*100)}%"
@@ -38,13 +45,47 @@ class FnOp(Expression):
         return "(%s %s)" % (self.name(), self.arg)
 
 
-class ExpandableFnOp(FnOp):
+class NonSeqFnOp(FnOp):
+    def op(self, arg):
+        raise NotImplementedError
+
+    def constant(self) -> bool:
+        return self.arg.constant()
+
+    def roll(self):
+        return self.op(self.arg.roll())
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        result = {}
+        for k, v in self.arg.probability_table().items():
+            new_key = self.op(k)
+            result.setdefault(new_key, 0.0)
+            result[new_key] += v
+        return result
+
     def expand(self) -> typing.Tuple["Expression", bool]:
         expanded_arg, arg_expanded = self.arg.expand()
         return self.__class__(expanded_arg), arg_expanded
 
 
 class SeqFnOp(FnOp):
+    def op(self, arg: tuple):
+        raise NotImplementedError
+
+    def constant(self) -> bool:
+        return self.arg.constant()
+
+    def roll(self):
+        return self.op(self.arg.as_sequence().roll())
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        result = {}
+        for k, v in self.arg.as_sequence().probability_table().items():
+            new_key = self.op(k)
+            result.setdefault(new_key, 0.0)
+            result[new_key] += v
+        return result
+
     def expand(self) -> typing.Tuple["Expression", bool]:
         expanded_arg, arg_expanded = self.arg.as_sequence().expand()
         return (
@@ -202,8 +243,8 @@ Examples:
 
 
 class Seq(SeqFnOp, Sequence):
-    def roll(self):
-        return tuple(self.arg.as_sequence().roll())
+    def op(self, arg: tuple):
+        return arg
 
     @classmethod
     def name(cls):
@@ -232,8 +273,8 @@ Examples:
 
 
 class Sum(SeqFnOp):
-    def roll(self):
-        return _Number(sum(self.arg.as_sequence().roll()))
+    def op(self, arg: tuple):
+        return _Number(sum(arg))
 
     @classmethod
     def name(cls):
@@ -260,11 +301,8 @@ Examples:
 
 
 class Product(SeqFnOp):
-    def roll(self):
-        result = 1.0
-        for value in self.arg.as_sequence().roll():
-            result *= value
-        return _Number(result)
+    def op(self, arg: tuple):
+        return _Number(product(arg))
 
     @classmethod
     def name(cls):
@@ -345,9 +383,93 @@ Examples:
 """
 
 
+class Any(SeqFnOp):
+    def op(self, arg: tuple):
+        return any(arg)
+
+    def probability(self) -> float:
+        return sum(
+            v for k, v in self.arg.as_sequence().probability_table().items() if any(k)
+        )
+
+    @classmethod
+    def name(cls):
+        return "any"
+
+    @classmethod
+    def description(cls) -> str:
+        return "find if any items in sequence are true"
+
+    @classmethod
+    def help(cls) -> str:
+        return """any <seq>
+
+Arguments:
+    seq - A sequence
+
+Result:
+    Returns true if any of the items in the given sequence
+    are true, and false otherwise.
+
+Examples:
+    !roll any()
+    !roll any(true,false,true)
+    !roll any(seq(3d4) == 1)
+    !roll any(seq(3d4) < seq(3d6))
+"""
+
+
+class All(SeqFnOp):
+    def op(self, arg: tuple):
+        return all(arg)
+
+    def probability(self) -> float:
+        return sum(
+            v for k, v in self.arg.as_sequence().probability_table().items() if all(k)
+        )
+
+    @classmethod
+    def name(cls):
+        return "all"
+
+    @classmethod
+    def description(cls) -> str:
+        return "find if all items in sequence are true"
+
+    @classmethod
+    def help(cls) -> str:
+        return """all <seq>
+
+Arguments:
+    seq - A sequence
+
+Result:
+    Returns true if all of the items in the given sequence
+    are true, and false otherwise.
+
+Examples:
+    !roll all()
+    !roll all(true,false,true)
+    !roll all(seq(3d4) == 1)
+    !roll all(seq(3d4) < seq(3d6))
+"""
+
+
 NAMES_TO_FUNCTIONS: typing.Dict[str, typing.Type[FnOp]] = {
     fn.name(): fn
-    for fn in (ProbabilityOf, Mean, Min, Max, ProbTab, Seq, Sum, Product, Plot)
+    for fn in (
+        ProbabilityOf,
+        Mean,
+        Min,
+        Max,
+        ProbTab,
+        Seq,
+        Sum,
+        Product,
+        Plot,
+        Any,
+        All,
+    )
 }
 
 

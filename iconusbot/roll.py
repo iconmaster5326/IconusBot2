@@ -720,8 +720,24 @@ class Dice(Expression):
 
 
 class BinCompOp(Expression):
-    def op(self, lhs, rhs) -> bool:
+    def op_impl(self, lhs, rhs) -> bool:
         raise NotImplementedError
+
+    def op(
+        self,
+        lhs: typing.Union[typing.Tuple, float],
+        rhs: typing.Union[typing.Tuple, float],
+    ) -> typing.Union[typing.Tuple, bool]:
+        if isinstance(lhs, tuple) and isinstance(rhs, tuple):
+            if len(lhs) != len(rhs):
+                raise DiceRollError("sequences in '%s' are not the same length" % self)
+            return tuple(self.op(a, b) for a, b in zip(lhs, rhs))
+        elif isinstance(lhs, tuple):
+            return tuple(self.op(x, rhs) for x in lhs)
+        elif isinstance(rhs, tuple):
+            return tuple(self.op(lhs, x) for x in rhs)
+        else:
+            return self.op_impl(lhs, rhs)
 
     def __init__(self, lhs: Expression, rhs: Expression):
         self.lhs = lhs
@@ -764,9 +780,89 @@ class BinCompOp(Expression):
     def max(self) -> float:
         raise DiceRollError("Maximum of '%s' cannot be computed" % self)
 
+    def as_sequence(self) -> "Sequence":
+        this = self
+        try:
+            lhs = self.lhs.as_sequence()
+            lhs_seq = True
+        except NotASequenceError:
+            lhs_seq = False
+        try:
+            rhs = self.rhs.as_sequence()
+            rhs_seq = True
+        except NotASequenceError:
+            rhs_seq = False
+
+        if not lhs_seq and not rhs_seq:
+            return super().as_sequence()
+        if lhs_seq and rhs_seq:
+
+            class BinCompOpDualSeq(Sequence):
+                def roll(self):
+                    return this.op(lhs.roll(), rhs.roll())
+
+                def constant(self) -> bool:
+                    return this.constant()
+
+                def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+                    table1 = lhs.probability_table()
+                    table2 = rhs.probability_table()
+                    result: typing.Dict[typing.Any, float] = {}
+                    for key1, value1 in table1.items():
+                        for key2, value2 in table2.items():
+                            new_key = this.op(key1, key2)
+                            result.setdefault(new_key, 0)
+                            result[new_key] += value1 * value2
+                    return result
+
+                def __repr__(self) -> str:
+                    return this.__repr__()
+
+            return BinCompOpDualSeq()
+        else:
+
+            class BinCompOpOneSeq(Sequence):
+                def roll(self):
+                    if lhs_seq:
+                        lhs_rolled = lhs.roll()
+                    else:
+                        lhs_rolled = this.lhs.roll()
+                    if rhs_seq:
+                        rhs_rolled = rhs.roll()
+                    else:
+                        rhs_rolled = this.rhs.roll()
+
+                    return this.op(lhs_rolled, rhs_rolled)
+
+                def constant(self) -> bool:
+                    return this.constant()
+
+                def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+                    if lhs_seq:
+                        table1 = lhs.probability_table()
+                    else:
+                        table1 = this.lhs.probability_table()
+                    if rhs_seq:
+                        table2 = rhs.probability_table()
+                    else:
+                        table2 = this.rhs.probability_table()
+
+                    result: typing.Dict[typing.Any, float] = {}
+                    for key1, value1 in table1.items():
+                        for key2, value2 in table2.items():
+                            new_key = this.op(key1, key2)
+                            result.setdefault(new_key, 0)
+                            result[new_key] += value1 * value2
+                    return result
+
+                def __repr__(self) -> str:
+                    return this.__repr__()
+
+            return BinCompOpOneSeq()
+
 
 class Eq(BinCompOp):
-    def op(self, lhs, rhs) -> bool:
+    def op_impl(self, lhs, rhs) -> bool:
         return lhs == rhs
 
     def __repr__(self):
@@ -791,7 +887,7 @@ class Eq(BinCompOp):
 
 
 class Ne(BinCompOp):
-    def op(self, lhs, rhs) -> bool:
+    def op_impl(self, lhs, rhs) -> bool:
         return lhs != rhs
 
     def __repr__(self):
@@ -799,7 +895,7 @@ class Ne(BinCompOp):
 
 
 class Le(BinCompOp):
-    def op(self, lhs, rhs) -> bool:
+    def op_impl(self, lhs, rhs) -> bool:
         return lhs <= rhs
 
     def __repr__(self):
@@ -807,7 +903,7 @@ class Le(BinCompOp):
 
 
 class Ge(BinCompOp):
-    def op(self, lhs, rhs) -> bool:
+    def op_impl(self, lhs, rhs) -> bool:
         return lhs >= rhs
 
     def __repr__(self):
@@ -815,7 +911,7 @@ class Ge(BinCompOp):
 
 
 class Lt(BinCompOp):
-    def op(self, lhs, rhs) -> bool:
+    def op_impl(self, lhs, rhs) -> bool:
         return lhs < rhs
 
     def __repr__(self):
@@ -823,7 +919,7 @@ class Lt(BinCompOp):
 
 
 class Gt(BinCompOp):
-    def op(self, lhs, rhs) -> bool:
+    def op_impl(self, lhs, rhs) -> bool:
         return lhs > rhs
 
     def __repr__(self):
