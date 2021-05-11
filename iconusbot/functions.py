@@ -1,6 +1,7 @@
 import io
 from .roll import (
     ImageResult,
+    NotASequenceError,
     Sequence,
     Unpack,
     _Number,
@@ -66,6 +67,31 @@ class NonSeqFnOp(FnOp):
     def expand(self) -> typing.Tuple["Expression", bool]:
         expanded_arg, arg_expanded = self.arg.expand()
         return self.__class__(expanded_arg), arg_expanded
+
+
+class SeqIfArgIsSeqFnOp(NonSeqFnOp):
+    def as_sequence(self) -> "Sequence":
+        try:
+            self.arg.as_sequence()
+        except NotASequenceError:
+            return super().as_sequence()
+        else:
+            this = self
+
+            class Passthrough(Sequence):
+                def roll(self):
+                    return this.op(this.arg.as_sequence().roll())
+
+                def constant(self) -> bool:
+                    return this.constant()
+
+                def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+                    return this.probability_table_impl()
+
+                def __repr__(self) -> str:
+                    return str(this)
+
+            return Passthrough()
 
 
 class SeqFnOp(FnOp):
@@ -455,6 +481,38 @@ Examples:
 """
 
 
+class Abs(SeqIfArgIsSeqFnOp):
+    def op(self, arg):
+        if isinstance(arg, tuple):
+            return tuple(_Number(abs(x)) for x in arg)
+        return _Number(abs(arg))
+
+    @classmethod
+    def name(cls):
+        return "abs"
+
+    @classmethod
+    def description(cls) -> str:
+        return "absolute value"
+
+    @classmethod
+    def help(cls) -> str:
+        return """abs <n>
+
+Arguments:
+    seq - A number or sequence of numbers
+
+Result:
+    Returns the absolute value of n.
+
+Examples:
+    !roll abs(1)
+    !roll abs(-1)
+    !roll abs(-1,0,1)
+    !roll abs(seq(5d{-1,0,1}))
+"""
+
+
 NAMES_TO_FUNCTIONS: typing.Dict[str, typing.Type[FnOp]] = {
     fn.name(): fn
     for fn in (
@@ -469,6 +527,7 @@ NAMES_TO_FUNCTIONS: typing.Dict[str, typing.Type[FnOp]] = {
         Plot,
         Any,
         All,
+        Abs,
     )
 }
 
