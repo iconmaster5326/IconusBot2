@@ -356,29 +356,41 @@ Examples:
 
 class Plot(FnOp):
     def roll(self):
-        KEY_VALUE = " value "
-
+        KEY_VALUE = object()
         unparsed_data = self.arg.as_sequence()
-        raw_data = {KEY_VALUE: {}}
-        if not isinstance(unparsed_data, Tuple):
-            raise DiceRollError("plot must operate on a tuple")
-        for expr in unparsed_data.args:
-            if isinstance(expr, Unpack):
-                raise DiceRollError("Unpacks not yet supported in plot")
-            else:
-                probtab = expr.probability_table()
-                raw_data[KEY_VALUE].update({k: k for k in probtab})
-                raw_data[str(expr)] = probtab
+        probability_tables: typing.Dict[str, typing.Dict[typing.Any, float]] = {}
 
-        data = pandas.DataFrame.from_dict(
-            {
-                data_key: [
-                    data_value.get(table_key, 0.0) for table_key in raw_data[KEY_VALUE]
-                ]
-                for data_key, data_value in raw_data.items()
-            }
-        )
-        fig = px.bar(data, x=KEY_VALUE, y=data.columns[1:], barmode="overlay")
+        def get_probtab_from_tuple(unparsed_data: Expression):
+            if not isinstance(unparsed_data, Tuple):
+                raise DiceRollError(
+                    "parsing of argument list as non-sequence-constants not yet implemented"
+                )
+            for expr in unparsed_data.args:
+                if isinstance(expr, Unpack):
+                    get_probtab_from_tuple(expr.value)
+                else:
+                    probability_tables[str(expr)] = expr.probability_table()
+
+        get_probtab_from_tuple(unparsed_data)
+        possible_values = set()
+
+        for probtab in probability_tables.values():
+            possible_values.update(probtab.keys())
+
+        possible_values = sorted(possible_values)
+        records = [tuple(str(x) for x in possible_values)]
+        record_labels = [KEY_VALUE]
+
+        for label, probtab in probability_tables.items():
+            record = []
+            for value in possible_values:
+                record.append(probtab.get(value, 0.0))
+            records.append(tuple(record))
+            record_labels.append(label)
+
+        data = pandas.DataFrame.from_records(zip(*records), columns=record_labels)
+        fig = px.bar(data, x=data.columns[0], y=data.columns[1:], barmode="overlay")
+        fig.update_xaxes(title_text="value")
         fig.update_yaxes(title_text="probability", tickformat="%")
         stream = io.BytesIO()
         fig.write_image(file=stream, format="png")
