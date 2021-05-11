@@ -1,5 +1,13 @@
 import io
-from .roll import ImageResult, Unpack, _Number, Expression, DiceRollError, Tuple
+from .roll import (
+    ImageResult,
+    Sequence,
+    Unpack,
+    _Number,
+    Expression,
+    DiceRollError,
+    Tuple,
+)
 import typing
 import plotly.express as px
 import pandas
@@ -27,7 +35,7 @@ class FnOp(Expression):
         self.arg = arg
 
     def __repr__(self):
-        return "%s %s" % (self.name(), self.arg)
+        return "(%s %s)" % (self.name(), self.arg)
 
 
 class ExpandableFnOp(FnOp):
@@ -193,7 +201,7 @@ Examples:
 """
 
 
-class Seq(SeqFnOp):
+class Seq(SeqFnOp, Sequence):
     def roll(self):
         return tuple(self.arg.as_sequence().roll())
 

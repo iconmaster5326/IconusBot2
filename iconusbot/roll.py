@@ -23,6 +23,10 @@ class DiceRollError(ValueError):
     pass
 
 
+class NotASequenceError(DiceRollError):
+    pass
+
+
 class Expression:
     def roll(self):
         raise NotImplementedError
@@ -73,7 +77,7 @@ class Expression:
             return self.probability_table_impl()
 
     def as_sequence(self) -> "Sequence":
-        raise DiceRollError("'%s' is not a sequence" % self)
+        raise NotASequenceError("'%s' is not a sequence" % self)
 
     def expand(self) -> typing.Tuple["Expression", bool]:
         return self, False
@@ -241,7 +245,23 @@ class Tuple(Sequence):
 
 
 class BiMathOp(Expression):
-    def op(self, lhs: float, rhs: float) -> float:
+    def op(
+        self,
+        lhs: typing.Union[typing.Tuple, float],
+        rhs: typing.Union[typing.Tuple, float],
+    ) -> typing.Union[typing.Tuple, float]:
+        if isinstance(lhs, tuple) and isinstance(rhs, tuple):
+            if len(lhs) != len(rhs):
+                raise DiceRollError("sequences in '%s' are not the same length" % self)
+            return tuple(self.op(a, b) for a, b in zip(lhs, rhs))
+        elif isinstance(lhs, tuple):
+            return tuple(self.op(x, rhs) for x in lhs)
+        elif isinstance(rhs, tuple):
+            return tuple(self.op(lhs, x) for x in rhs)
+        else:
+            return _Number(self.op_impl(lhs, rhs))
+
+    def op_impl(self, lhs: float, rhs: float) -> float:
         raise NotImplementedError
 
     def __init__(self, lhs: Expression, rhs: Expression):
@@ -249,7 +269,7 @@ class BiMathOp(Expression):
         self.rhs = rhs
 
     def roll(self):
-        return _Number(self.op(self.lhs.roll(), self.rhs.roll()))
+        return self.op(self.lhs.roll(), self.rhs.roll())
 
     def constant(self) -> bool:
         return self.lhs.constant() and self.rhs.constant()
@@ -260,67 +280,136 @@ class BiMathOp(Expression):
         return self.__class__(expanded_lhs, expanded_rhs), lhs_expanded or rhs_expanded
 
     def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
-        if self.lhs.constant():
-            value = self.lhs.roll()
-            return {
-                self.op(k, value): v for k, v in self.rhs.probability_table().items()
-            }
-        elif self.rhs.constant():
-            value = self.rhs.roll()
-            return {
-                self.op(k, value): v for k, v in self.lhs.probability_table().items()
-            }
-        else:
-            table1 = self.lhs.probability_table()
-            table2 = self.rhs.probability_table()
-            result: typing.Dict[typing.Any, float] = {}
-            for key1, value1 in table1.items():
-                for key2, value2 in table2.items():
-                    new_key = self.op(key1, key2)
-                    result.setdefault(new_key, 0)
-                    result[new_key] += value1 * value2
-            return result
+        table1 = self.lhs.probability_table()
+        table2 = self.rhs.probability_table()
+        result: typing.Dict[typing.Any, float] = {}
+        for key1, value1 in table1.items():
+            for key2, value2 in table2.items():
+                new_key = self.op(key1, key2)
+                result.setdefault(new_key, 0)
+                result[new_key] += value1 * value2
+        return result
 
     def mean(self) -> float:
-        return self.op(self.lhs.mean(), self.rhs.mean())
+        return self.op_impl(self.lhs.mean(), self.rhs.mean())
 
     def min(self) -> float:
-        return self.op(self.lhs.min(), self.rhs.min())
+        return self.op_impl(self.lhs.min(), self.rhs.min())
 
     def max(self) -> float:
-        return self.op(self.lhs.max(), self.rhs.max())
+        return self.op_impl(self.lhs.max(), self.rhs.max())
+
+    def as_sequence(self) -> "Sequence":
+        this = self
+        try:
+            lhs = self.lhs.as_sequence()
+            lhs_seq = True
+        except NotASequenceError:
+            lhs_seq = False
+        try:
+            rhs = self.rhs.as_sequence()
+            rhs_seq = True
+        except NotASequenceError:
+            rhs_seq = False
+
+        if not lhs_seq and not rhs_seq:
+            return super().as_sequence()
+        if lhs_seq and rhs_seq:
+
+            class BinMathOpDualSeq(Sequence):
+                def roll(self):
+                    return this.op(lhs.roll(), rhs.roll())
+
+                def constant(self) -> bool:
+                    return this.constant()
+
+                def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+                    table1 = lhs.probability_table()
+                    table2 = rhs.probability_table()
+                    result: typing.Dict[typing.Any, float] = {}
+                    for key1, value1 in table1.items():
+                        for key2, value2 in table2.items():
+                            new_key = this.op(key1, key2)
+                            result.setdefault(new_key, 0)
+                            result[new_key] += value1 * value2
+                    return result
+
+                def __repr__(self) -> str:
+                    return this.__repr__()
+
+            return BinMathOpDualSeq()
+        else:
+
+            class BinMathOpOneSeq(Sequence):
+                def roll(self):
+                    if lhs_seq:
+                        lhs_rolled = lhs.roll()
+                    else:
+                        lhs_rolled = this.lhs.roll()
+                    if rhs_seq:
+                        rhs_rolled = rhs.roll()
+                    else:
+                        rhs_rolled = this.rhs.roll()
+
+                    return this.op(lhs_rolled, rhs_rolled)
+
+                def constant(self) -> bool:
+                    return this.constant()
+
+                def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+                    if lhs_seq:
+                        table1 = lhs.probability_table()
+                    else:
+                        table1 = this.lhs.probability_table()
+                    if rhs_seq:
+                        table2 = rhs.probability_table()
+                    else:
+                        table2 = this.rhs.probability_table()
+
+                    result: typing.Dict[typing.Any, float] = {}
+                    for key1, value1 in table1.items():
+                        for key2, value2 in table2.items():
+                            new_key = this.op(key1, key2)
+                            result.setdefault(new_key, 0)
+                            result[new_key] += value1 * value2
+                    return result
+
+                def __repr__(self) -> str:
+                    return this.__repr__()
+
+            return BinMathOpOneSeq()
 
 
 class Add(BiMathOp):
-    def op(self, lhs: float, rhs: float) -> float:
+    def op_impl(self, lhs: float, rhs: float) -> float:
         return lhs + rhs
 
     def __repr__(self):
-        return "%s + %s" % (self.lhs, self.rhs)
+        return "(%s + %s)" % (self.lhs, self.rhs)
 
 
 class Sub(BiMathOp):
-    def op(self, lhs: float, rhs: float) -> float:
+    def op_impl(self, lhs: float, rhs: float) -> float:
         return lhs - rhs
 
     def __repr__(self):
-        return "%s - %s" % (self.lhs, self.rhs)
+        return "(%s - %s)" % (self.lhs, self.rhs)
 
 
 class Mul(BiMathOp):
-    def op(self, lhs: float, rhs: float) -> float:
+    def op_impl(self, lhs: float, rhs: float) -> float:
         return lhs * rhs
 
     def __repr__(self):
-        return "%s * %s" % (self.lhs, self.rhs)
+        return "(%s * %s)" % (self.lhs, self.rhs)
 
 
 class Div(BiMathOp):
-    def op(self, lhs: float, rhs: float) -> float:
+    def op_impl(self, lhs: float, rhs: float) -> float:
         return lhs / rhs
 
     def __repr__(self):
-        return "%s / %s" % (self.lhs, self.rhs)
+        return "(%s / %s)" % (self.lhs, self.rhs)
 
 
 class Neg(Expression):
@@ -417,7 +506,7 @@ class Range(Sequence):
         )
 
     def __repr__(self) -> str:
-        return "%s to %s" % (self.from_, self.to) + (
+        return "(%s to %s)" % (self.from_, self.to) + (
             "" if self.step is None else " by %s" % self.step
         )
 
@@ -541,7 +630,10 @@ class Dice(Expression):
         self.dice = dice
 
     def roll(self):
-        return sum(self.dice.roll() for _ in range(int(self.n_dice.roll())))
+        n_dice = self.n_dice.roll()
+        if not isinstance(n_dice, int) and not isinstance(n_dice, float):
+            raise DiceRollError("attempted to roll %s dice" % (n_dice,))
+        return sum(self.dice.roll() for _ in range(int(n_dice)))
 
     def constant(self) -> bool:
         return self.n_dice.constant() and self.dice.constant()
@@ -549,13 +641,13 @@ class Dice(Expression):
     def expand(self) -> typing.Tuple["Expression", bool]:
         class ExpandedDice(Tuple):
             def roll(self):
-                return sum(super().roll())
+                return _Number(sum(super().roll()))
 
             def __repr__(self) -> str:
                 return (
                     "0"
                     if len(self.args) == 0
-                    else " + ".join(str(x) for x in self.args)
+                    else "(%s)" % " + ".join(str(x) for x in self.args)
                 )
 
             def as_sequence(self) -> Sequence:
@@ -565,17 +657,21 @@ class Dice(Expression):
         if lhs_expanded:
             return self.__class__(expanded_lhs, self.dice), True
         else:
-            n_dice = int(expanded_lhs.roll())
+            n_dice = expanded_lhs.roll()
+            if not isinstance(n_dice, int) and not isinstance(n_dice, float):
+                raise DiceRollError("attempted to roll %s dice" % (n_dice))
             if n_dice == 1:
                 return Constant(self.dice.roll()), True
             else:
                 return (
-                    ExpandedDice(*(Constant(x.roll()) for x in [self.dice] * n_dice)),
+                    ExpandedDice(
+                        *(Constant(x.roll()) for x in [self.dice] * int(n_dice))
+                    ),
                     True,
                 )
 
     def __repr__(self) -> str:
-        return "%s%s" % (self.n_dice, self.dice)
+        return "(%s%s)" % (self.n_dice, self.dice)
 
     def as_sequence(self) -> Sequence:
         if self.n_dice.constant():
@@ -585,9 +681,10 @@ class Dice(Expression):
 
             class DiceSequence(Sequence):
                 def roll(self):
-                    return tuple(
-                        dice.dice.roll() for _ in range(int(dice.n_dice.roll()))
-                    )
+                    n_dice = dice.n_dice.roll()
+                    if not isinstance(n_dice, int) and not isinstance(n_dice, float):
+                        raise DiceRollError("attempted to roll %s dice" % (n_dice,))
+                    return tuple(dice.dice.roll() for _ in range(int(n_dice)))
 
                 def constant(self) -> bool:
                     return dice.constant()
@@ -673,7 +770,7 @@ class Eq(BinCompOp):
         return lhs == rhs
 
     def __repr__(self):
-        return "%s == %s" % (self.lhs, self.rhs)
+        return "(%s == %s)" % (self.lhs, self.rhs)
 
     def probability(self) -> float:
         if self.constant():
@@ -698,7 +795,7 @@ class Ne(BinCompOp):
         return lhs != rhs
 
     def __repr__(self):
-        return "%s != %s" % (self.lhs, self.rhs)
+        return "(%s != %s)" % (self.lhs, self.rhs)
 
 
 class Le(BinCompOp):
@@ -706,7 +803,7 @@ class Le(BinCompOp):
         return lhs <= rhs
 
     def __repr__(self):
-        return "%s <= %s" % (self.lhs, self.rhs)
+        return "(%s <= %s)" % (self.lhs, self.rhs)
 
 
 class Ge(BinCompOp):
@@ -714,7 +811,7 @@ class Ge(BinCompOp):
         return lhs >= rhs
 
     def __repr__(self):
-        return "%s >= %s" % (self.lhs, self.rhs)
+        return "(%s >= %s)" % (self.lhs, self.rhs)
 
 
 class Lt(BinCompOp):
@@ -722,7 +819,7 @@ class Lt(BinCompOp):
         return lhs < rhs
 
     def __repr__(self):
-        return "%s < %s" % (self.lhs, self.rhs)
+        return "(%s < %s)" % (self.lhs, self.rhs)
 
 
 class Gt(BinCompOp):
@@ -730,7 +827,7 @@ class Gt(BinCompOp):
         return lhs > rhs
 
     def __repr__(self):
-        return "%s > %s" % (self.lhs, self.rhs)
+        return "(%s > %s)" % (self.lhs, self.rhs)
 
 
 class EvaluatedSequence(Sequence):
@@ -808,7 +905,7 @@ class DropWorst(DropKeepOp):
         return lhs[rhs:]
 
     def __repr__(self):
-        return "%s drop worst %s" % (self.lhs, self.rhs)
+        return "(%s drop worst %s)" % (self.lhs, self.rhs)
 
 
 class DropBest(DropKeepOp):
@@ -816,7 +913,7 @@ class DropBest(DropKeepOp):
         return lhs[:-rhs]
 
     def __repr__(self):
-        return "%s drop best %s" % (self.lhs, self.rhs)
+        return "(%s drop best %s)" % (self.lhs, self.rhs)
 
 
 class KeepWorst(DropKeepOp):
@@ -824,7 +921,7 @@ class KeepWorst(DropKeepOp):
         return lhs[:rhs]
 
     def __repr__(self):
-        return "%s keep worst %s" % (self.lhs, self.rhs)
+        return "(%s keep worst %s)" % (self.lhs, self.rhs)
 
 
 class KeepBest(DropKeepOp):
@@ -832,7 +929,7 @@ class KeepBest(DropKeepOp):
         return lhs[-rhs:]
 
     def __repr__(self):
-        return "%s keep best %s" % (self.lhs, self.rhs)
+        return "(%s keep best %s)" % (self.lhs, self.rhs)
 
 
 class And(Expression):
@@ -868,7 +965,7 @@ class And(Expression):
         raise DiceRollError("Maximum of '%s' cannot be computed" % self)
 
     def __repr__(self) -> str:
-        return "%s and %s" % (self.lhs, self.rhs)
+        return "(%s and %s)" % (self.lhs, self.rhs)
 
 
 class Or(Expression):
@@ -904,7 +1001,7 @@ class Or(Expression):
         raise DiceRollError("Maximum of '%s' cannot be computed" % self)
 
     def __repr__(self) -> str:
-        return "%s or %s" % (self.lhs, self.rhs)
+        return "(%s or %s)" % (self.lhs, self.rhs)
 
 
 class Not(Expression):
@@ -938,7 +1035,7 @@ class Not(Expression):
         raise DiceRollError("Maximum of '%s' cannot be computed" % self)
 
     def __repr__(self) -> str:
-        return "not %s" % self.lhs
+        return "not (%s)" % self.lhs
 
 
 class IfThenElse(Expression):
@@ -986,7 +1083,7 @@ class IfThenElse(Expression):
         )
 
     def __repr__(self) -> str:
-        return "if %s then %s else %s" % (self.if_, self.then, self.else_)
+        return "(if %s then %s else %s)" % (self.if_, self.then, self.else_)
 
     def as_sequence(self) -> Sequence:
         ifte = self
@@ -1027,7 +1124,7 @@ class Let(Expression):
         result = self.body.roll()
         self._cached_value = None
         return result
-    
+
     def constant(self) -> bool:
         return self.body.constant()
 
@@ -1098,7 +1195,7 @@ class Let(Expression):
         return LetSeq()
 
     def __repr__(self) -> str:
-        return "let %s = %s in %s" % (self.name, self.value, self.body)
+        return "(let %s = %s in %s)" % (self.name, self.value, self.body)
 
 
 class Var(Expression):
