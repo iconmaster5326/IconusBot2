@@ -42,6 +42,9 @@ class _RollParser(lark.Transformer):
     count = roll.Count
     string = lambda self, arg: roll.Constant(str(arg))
     string_0 = lambda self: roll.Constant("")
+    for_postfix_where = lambda self, arg: (arg, None)
+    for_postfix_no_where = lambda self, arg: (None, arg)
+    for_postfix_both = lambda self, arg1, arg2: (arg1, arg2)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -58,6 +61,13 @@ class _RollParser(lark.Transformer):
         result = roll.Var(name=var)
         self.vars.setdefault(var, [])
         self.vars[var].append(result)
+        return result
+
+    def for_(self, name: str, values: roll.Expression, postfix: tuple):
+        result = roll.For(name, values, *postfix)
+        for var_expr in self.vars.get(name, []):
+            var_expr.let = result
+        self.vars.get(name, []).clear()
         return result
 
 

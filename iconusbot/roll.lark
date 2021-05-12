@@ -1,7 +1,16 @@
 ?start: expression
-?expression: op_lvl1
+?expression: op_lvl0
 
 // level 1 is lowest precendence, level 2 is higher precendence, etc.
+?op_lvl0: op_lvl1
+    | "if" expression "then" expression "else" op_lvl0 -> ifte
+    | "let" CNAME "=" expression "in" op_lvl0 -> let
+    | "for" CNAME "in" expression for_postfix -> for_
+
+?for_postfix: ":" op_lvl0 -> for_postfix_no_where
+    | "where" op_lvl0 -> for_postfix_where
+    | "where" op_lvl0 ":" op_lvl0 -> for_postfix_both
+
 ?op_lvl1: op_lvl2
     | op_lvl1 "and" op_lvl2 -> and_
     | op_lvl1 "or" op_lvl2 -> or_
@@ -30,20 +39,16 @@
     | "not" op_lvl5 -> not_
     | "#" op_lvl5 -> count
 
-?op_lvl6: op_lvl7
-    | op_lvl6 "drop" "worst" op_lvl7 -> drop_worst
-    | op_lvl6 "drop" "best" op_lvl7 -> drop_best
-    | op_lvl6 "keep" "worst" op_lvl7 -> keep_worst
-    | op_lvl6 "keep" "best" op_lvl7 -> keep_best
-
-?op_lvl7: op_lvl8
-    | CNAME op_lvl7 -> fn_call
-    | "if" expression "then" expression "else" op_lvl7 -> ifte
-    | "let" CNAME "=" expression "in" op_lvl7 -> let
+?op_lvl6: op_lvl8
+    | op_lvl6 "drop" "worst" op_lvl8 -> drop_worst
+    | op_lvl6 "drop" "best" op_lvl8 -> drop_best
+    | op_lvl6 "keep" "worst" op_lvl8 -> keep_worst
+    | op_lvl6 "keep" "best" op_lvl8 -> keep_best
 
 ?op_lvl8: NUMBER -> number
     | op_lvl8 die -> dice
     | die
+    | CNAME op_lvl8 -> fn_call
     | CNAME -> var
     | "true" -> true
     | "false" -> false

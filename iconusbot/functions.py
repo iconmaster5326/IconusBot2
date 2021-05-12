@@ -646,6 +646,14 @@ class Eval(FnOp, Sequence):
             return max(self.evaluated_arg)
         else:
             return self.evaluated_arg
+        
+    def probability(self) -> float:
+        if self.evaluated_arg is False:
+            return 0.0
+        if self.evaluated_arg is True:
+            return 1.0
+        else:
+            return super().probability()
 
     @classmethod
     def name(cls):

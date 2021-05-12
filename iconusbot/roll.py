@@ -1439,3 +1439,124 @@ class Var(Expression):
 
     def __repr__(self) -> str:
         return str(self.name)
+
+
+class For(Let, Sequence):
+    def __init__(
+        self,
+        name: str,
+        values: Expression,
+        where: typing.Optional[Expression] = None,
+        body: typing.Optional[Expression] = None,
+    ) -> None:
+        this = self
+
+        class ForValue(Expression):
+            def constant(self) -> bool:
+                return this.values.constant()
+
+            def mean(self) -> float:
+                return this.values.mean()
+
+            def min(self) -> float:
+                return this.values.min()
+
+            def max(self) -> float:
+                return this.values.max()
+
+            def __repr__(self) -> str:
+                return str(this.values)
+
+        if body is None:
+            body = Var(name=name, let=self)
+        Let.__init__(self, name, ForValue(), body)
+        self.values = values
+        self.where = where
+
+    def roll(self):
+        result = []
+        for item in self.value.roll():
+            self._cached_value = item
+            if self.where is not None and not self.where.roll():
+                continue
+            result.append(self.body.roll())
+        self._cached_value = None
+        return tuple(result)
+
+    def as_sequence(self) -> Sequence:
+        return self
+
+    def mean(self) -> float:
+        return self.body.mean()
+
+    def min(self) -> float:
+        return self.body.min()
+
+    def max(self) -> float:
+        return self.body.max()
+
+    def probability(self) -> float:
+        return Expression.probability(self)
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        def combine_probtab_list(
+            items: typing.List[typing.Dict[typing.Any, float]]
+        ) -> typing.Dict[tuple, float]:
+            if len(items) == 0:
+                return {(): 1.0}
+            else:
+                head = items[0]
+                tail = combine_probtab_list(items[1:])
+                result = {}
+                for head_k, head_v in head.items():
+                    for tail_k, tail_v in tail.items():
+                        new_key = (head_k,) + tail_k
+                        result.setdefault(new_key, 0.0)
+                        result[new_key] += head_v * tail_v
+                return result
+
+        result = {}
+
+        for values_key, values_value in (
+            self.values.as_sequence().probability_table().items()
+        ):
+            result_probtabs: typing.List[typing.Dict[typing.Any, float]] = []
+            for item in values_key:
+                self._cached_value = item
+                if self.where is not None and not self.where.roll():
+                    continue
+                result_probtabs.append(self.body.probability_table())
+            for body_key, body_value in combine_probtab_list(result_probtabs).items():
+                result.setdefault(body_key, 0.0)
+                result[body_key] += values_value * body_value
+
+        self._cached_value = None
+        return result
+
+    def unevaluated_items(self) -> typing.Iterable[Expression]:
+        if not self.constant():
+            return super().unevaluated_items()
+        else:
+            return EvaluatedSequence(self.roll()).unevaluated_items()
+
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        self.values, value_expanded = self.values.as_sequence().expand()
+        if value_expanded:
+            return self, True
+        else:
+            items = []
+            for value in self.values.roll():
+                self._cached_value = value
+                if self.where is not None and not self.where.roll():
+                    continue
+                items.append(self.body.expand()[0])
+            self._cached_value = None
+            return Tuple(*items), True
+
+    def __repr__(self) -> str:
+        return "(for %s in %s%s: %s)" % (
+            self.name,
+            self.value,
+            "" if self.where is None else " where %s" % (self.where,),
+            self.body,
+        )
