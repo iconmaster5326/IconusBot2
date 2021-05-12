@@ -12,6 +12,7 @@ from .roll import (
 import typing
 import plotly.express as px
 import pandas
+import math
 
 
 def product(xs: typing.Iterable):
@@ -525,6 +526,89 @@ Examples:
 """
 
 
+class Explode(FnOp):
+    EPSILON = 0.000001
+
+    def roll(self):
+        if self.arg.constant():
+            return math.inf
+        arg = self.arg.roll()
+        if arg == self.arg.max():
+            return _Number(arg + self.roll())
+        else:
+            return arg
+
+    def constant(self) -> bool:
+        return self.arg.constant()
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        result = {}
+        prob_factor = 1.0
+        running_total = 0.0
+        probtab = self.arg.probability_table()
+        maxval = max(probtab.keys())
+        n_values = len(probtab)
+
+        while True:
+            for key, value in probtab.items():
+                if key == maxval:
+                    continue
+
+                new_key = _Number(running_total + key)
+                result.setdefault(new_key, 0.0)
+                result[new_key] += value * prob_factor
+
+            running_total += maxval
+            prob_factor /= n_values
+
+            if prob_factor < self.EPSILON:
+                return result
+
+    def min(self) -> float:
+        if self.arg.constant():
+            return math.inf
+        else:
+            return self.arg.min()
+
+    def max(self) -> float:
+        return math.inf
+
+    @classmethod
+    def name(cls):
+        return "explode"
+
+    @classmethod
+    def description(cls) -> str:
+        return "explode a die"
+
+    @classmethod
+    def help(cls) -> str:
+        return (
+            """explode <dn>
+
+Arguments:
+    dn - A die
+
+Result:
+    Explodes a die - that is, when the die rolls
+    its maximum possible value, roll an additional
+    die and add the results together. This process
+    may continue indefinitely as long as the new die
+    rolled is its maximum value.
+
+    Since the result of this has no maximum value,
+    the probability table generated from this function
+    is cut off beyond a certain epsilon (configured
+    by the server owner to be %s).
+
+Examples:
+    !roll explode d10
+    !roll explode d{2,4,6,8}
+"""
+            % f"{cls.EPSILON*100:f}%"
+        )
+
+
 NAMES_TO_FUNCTIONS: typing.Dict[str, typing.Type[FnOp]] = {
     fn.name(): fn
     for fn in (
@@ -540,6 +624,7 @@ NAMES_TO_FUNCTIONS: typing.Dict[str, typing.Type[FnOp]] = {
         Any,
         All,
         Abs,
+        Explode,
     )
 }
 
