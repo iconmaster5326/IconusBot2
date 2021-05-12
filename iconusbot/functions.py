@@ -546,7 +546,7 @@ class Explode(FnOp):
         prob_factor = 1.0
         running_total = 0.0
         probtab = self.arg.probability_table()
-        maxval = max(probtab.keys())
+        maxval = self.arg.max()
         n_values = len(probtab)
 
         while True:
