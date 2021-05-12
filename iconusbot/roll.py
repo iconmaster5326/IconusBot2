@@ -93,6 +93,9 @@ def _mean(xs: typing.Iterable[float]) -> float:
 
 
 class Sequence(Expression):
+    def unevaluated_items(self) -> typing.Iterable[Expression]:
+        raise DiceRollError("sequence '%s' does not have fixed contents" % self)
+
     def as_sequence(self) -> "Sequence":
         return self
 
@@ -243,6 +246,13 @@ class Tuple(Sequence):
                 result[new_key] += value_head * value_tail
         return result
 
+    def unevaluated_items(self) -> typing.Iterable[Expression]:
+        for arg in self.args:
+            if isinstance(arg, Unpack):
+                yield from arg.value.as_sequence().unevaluated_items()
+            else:
+                yield arg
+
 
 class BiMathOp(Expression):
     def op(
@@ -337,6 +347,12 @@ class BiMathOp(Expression):
                 def __repr__(self) -> str:
                     return this.__repr__()
 
+                def unevaluated_items(self) -> typing.Iterable[Expression]:
+                    for arg1, arg2 in zip(
+                        lhs.unevaluated_items(), rhs.unevaluated_items()
+                    ):
+                        yield this.__class__(arg1, arg2)
+
             return BinMathOpDualSeq()
         else:
 
@@ -376,6 +392,19 @@ class BiMathOp(Expression):
 
                 def __repr__(self) -> str:
                     return this.__repr__()
+
+                def unevaluated_items(self) -> typing.Iterable[Expression]:
+                    if lhs_seq:
+                        lhs_value = lhs.unevaluated_items()
+                    else:
+                        lhs_value = [this.lhs] * len(tuple(rhs.unevaluated_items()))
+                    if rhs_seq:
+                        rhs_value = rhs.unevaluated_items()
+                    else:
+                        rhs_value = [this.rhs] * len(tuple(lhs.unevaluated_items()))
+
+                    for arg1, arg2 in zip(lhs_value, rhs_value):
+                        yield this.__class__(arg1, arg2)
 
             return BinMathOpOneSeq()
 
@@ -482,7 +511,7 @@ class Range(Sequence):
             range(
                 int(self.from_.roll()),
                 int(self.to.roll()) + (-1 if step < 0 else 1),
-                step,
+                int(step),
             )
         )
 
@@ -523,12 +552,18 @@ class Range(Sequence):
                         range(
                             int(from_key),
                             int(to_key) + (-1 if step_key < 0 else 1),
-                            step_key,
+                            int(step_key),
                         )
                     )
                     result.setdefault(new_key, 0.0)
                     result[new_key] += from_value * to_value * step_value
         return result
+
+    def unevaluated_items(self) -> typing.Iterable[Expression]:
+        if not self.constant():
+            return super().unevaluated_items()
+        else:
+            return (Number(x) for x in self.roll())
 
 
 class Die(Expression):
@@ -814,6 +849,12 @@ class BinCompOp(Expression):
                 def __repr__(self) -> str:
                     return this.__repr__()
 
+                def unevaluated_items(self) -> typing.Iterable[Expression]:
+                    for arg1, arg2 in zip(
+                        lhs.unevaluated_items(), rhs.unevaluated_items()
+                    ):
+                        yield this.__class__(arg1, arg2)
+
             return BinCompOpDualSeq()
         else:
 
@@ -853,6 +894,19 @@ class BinCompOp(Expression):
 
                 def __repr__(self) -> str:
                     return this.__repr__()
+
+                def unevaluated_items(self) -> typing.Iterable[Expression]:
+                    if lhs_seq:
+                        lhs_value = lhs.unevaluated_items()
+                    else:
+                        lhs_value = [this.lhs] * len(tuple(rhs.unevaluated_items()))
+                    if rhs_seq:
+                        rhs_value = rhs.unevaluated_items()
+                    else:
+                        rhs_value = [this.rhs] * len(tuple(lhs.unevaluated_items()))
+
+                    for arg1, arg2 in zip(lhs_value, rhs_value):
+                        yield this.__class__(arg1, arg2)
 
             return BinCompOpOneSeq()
 
@@ -931,6 +985,9 @@ class EvaluatedSequence(Sequence):
 
     def __repr__(self):
         return "(" + ", ".join(str(arg) for arg in self.args) + ")"
+
+    def unevaluated_items(self) -> typing.Iterable[Expression]:
+        return (Constant(x) for x in self.args)
 
 
 class DropKeepOp(Expression):
@@ -1201,6 +1258,15 @@ class IfThenElse(Expression):
             def constant(self) -> bool:
                 return ifte.constant()
 
+            def unevaluated_items(self) -> typing.Iterable[Expression]:
+                if not ifte.if_.constant():
+                    return super().unevaluated_items()
+                return (
+                    ifte.then.as_sequence().unevaluated_items()
+                    if ifte.if_.roll()
+                    else ifte.else_.as_sequence().unevaluated_items()
+                )
+
         return IFTESeq()
 
 
@@ -1283,6 +1349,9 @@ class Let(Expression):
                         result[evaluated_key] += evaluated_value * value
                 let._cached_value = None
                 return result
+
+            def unevaluated_items(self) -> typing.Iterable[Expression]:
+                return let.body.as_sequence().unevaluated_items()
 
         return LetSeq()
 

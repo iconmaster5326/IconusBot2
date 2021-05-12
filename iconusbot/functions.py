@@ -361,18 +361,9 @@ class Plot(FnOp):
         unparsed_data = self.arg.as_sequence()
         probability_tables: typing.Dict[str, typing.Dict[typing.Any, float]] = {}
 
-        def get_probtab_from_tuple(unparsed_data: Expression):
-            if not isinstance(unparsed_data, Tuple):
-                raise DiceRollError(
-                    "parsing of argument list as non-sequence-constants not yet implemented"
-                )
-            for expr in unparsed_data.args:
-                if isinstance(expr, Unpack):
-                    get_probtab_from_tuple(expr.value)
-                else:
-                    probability_tables[str(expr)] = expr.probability_table()
+        for expr in self.arg.as_sequence().unevaluated_items():
+            probability_tables[str(expr)] = expr.probability_table()
 
-        get_probtab_from_tuple(unparsed_data)
         possible_values = set()
 
         for probtab in probability_tables.values():
