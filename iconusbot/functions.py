@@ -1,5 +1,6 @@
 import io
 from .roll import (
+    Constant,
     ImageResult,
     NotASequenceError,
     Sequence,
@@ -8,6 +9,7 @@ from .roll import (
     Expression,
     DiceRollError,
     Tuple,
+    _mean,
 )
 import typing
 import plotly.express as px
@@ -600,6 +602,77 @@ Examples:
         )
 
 
+class Eval(FnOp, Sequence):
+    def __init__(self, arg: Expression):
+        FnOp.__init__(self, arg)
+        self.evaluated_arg = arg.roll()
+
+    def roll(self):
+        return self.evaluated_arg
+
+    def constant(self) -> bool:
+        return True
+
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        return Constant(self.evaluated_arg), True
+
+    def as_sequence(self) -> "Sequence":
+        if isinstance(self.evaluated_arg, tuple):
+            return self
+        else:
+            return FnOp.as_sequence(self)
+
+    def unevaluated_items(self) -> typing.Iterable[Expression]:
+        if isinstance(self.evaluated_arg, tuple):
+            return (Constant(x) for x in self.evaluated_arg)
+        else:
+            return Sequence.unevaluated_items(self)
+
+    def mean(self) -> float:
+        if isinstance(self.evaluated_arg, tuple):
+            return _mean(self.evaluated_arg)
+        else:
+            return self.evaluated_arg
+
+    def min(self) -> float:
+        if isinstance(self.evaluated_arg, tuple):
+            return min(self.evaluated_arg)
+        else:
+            return self.evaluated_arg
+
+    def max(self) -> float:
+        if isinstance(self.evaluated_arg, tuple):
+            return max(self.evaluated_arg)
+        else:
+            return self.evaluated_arg
+
+    @classmethod
+    def name(cls):
+        return "eval"
+
+    @classmethod
+    def description(cls) -> str:
+        return "eagerly evaluate something"
+
+    @classmethod
+    def help(cls) -> str:
+        return """eval <x>
+
+Arguments:
+    x - Any expression
+
+Result:
+    Evaluates a value immediately. This is useful
+    in functions like `p`, `mean`, `plot`, and
+    others, where arguments are not usually
+    evaluated.
+
+Examples:
+    !roll eval d6
+    !roll plot(eval d6, d6)
+"""
+
+
 NAMES_TO_FUNCTIONS: typing.Dict[str, typing.Type[FnOp]] = {
     fn.name(): fn
     for fn in (
@@ -616,6 +689,7 @@ NAMES_TO_FUNCTIONS: typing.Dict[str, typing.Type[FnOp]] = {
         All,
         Abs,
         Explode,
+        Eval,
     )
 }
 
