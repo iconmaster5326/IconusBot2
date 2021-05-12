@@ -3,6 +3,7 @@ from .roll import (
     Constant,
     ImageResult,
     NotASequenceError,
+    Number,
     Sequence,
     Unpack,
     _Number,
@@ -673,6 +674,95 @@ Examples:
 """
 
 
+class Rep(FnOp, Sequence):
+    def __init__(self, arg: Expression):
+        super().__init__(arg)
+        self.unevaled_args = list(arg.as_sequence().unevaluated_items())
+        if len(self.unevaled_args) != 2:
+            raise DiceRollError(
+                "'%s' expected %s arguments, got %s"
+                % (self, 2, len(self.unevaled_args))
+            )
+
+    def roll(self):
+        return tuple(
+            self.unevaled_args[0].roll()
+            for _ in range(int(self.unevaled_args[1].roll()))
+        )
+
+    def constant(self) -> bool:
+        if not self.unevaled_args[1].constant():
+            return False
+        return self.unevaled_args[1].roll() <= 0 or self.unevaled_args[0].constant()
+
+    def expand(self) -> typing.Tuple["Expression", bool]:
+        expanded_arg1, arg1_expanded = self.unevaled_args[1].expand()
+        if arg1_expanded:
+            return (self.__class__(Tuple(self.unevaled_args[0], expanded_arg1)), True)
+        else:
+            return (
+                Tuple(*((self.unevaled_args[0],) * int(expanded_arg1.roll()))),
+                True,
+            )
+
+    def probability_table_impl(self) -> typing.Dict[typing.Any, float]:
+        result = {}
+        for key_1, value_1 in self.unevaled_args[1].probability_table().items():
+            for key_tail, value_tail in (
+                self.__class__(Tuple(self.unevaled_args[0], Number(key_1 - 1)))
+                .probability_table()
+                .items()
+            ):
+                for key_0, value_0 in self.unevaled_args[0].probability_table().items():
+                    new_key = (key_0,) + key_tail
+                    result.setdefault(new_key, 0.0)
+                    result[new_key] += value_1 * value_tail * value_0
+        return result
+
+    def mean(self) -> float:
+        return self.unevaled_args[0].mean()
+
+    def min(self) -> float:
+        return self.unevaled_args[0].min()
+
+    def max(self) -> float:
+        return self.unevaled_args[0].max()
+
+    def unevaluated_items(self) -> typing.Iterable[Expression]:
+        if not self.unevaled_args[1].constant():
+            return super().unevaluated_items()
+        for _ in range(int(self.unevaled_args[1].roll())):
+            yield self.unevaled_args[0]
+
+    @classmethod
+    def name(cls):
+        return "rep"
+
+    @classmethod
+    def description(cls) -> str:
+        return "repeat a value"
+
+    @classmethod
+    def help(cls) -> str:
+        return """rep (<x>, <n>)
+
+Arguments:
+    x - The expression to repeat
+    n - The number of times to repeat
+
+Result:
+    Returns a sequence of length n,
+    in which every element is the
+    reuslt of rolling x. x itself
+    is not eagerly evaluated.
+
+Examples:
+    !roll rep(d6, 4)
+    !roll rep(eval(d20), 6)
+    !roll rep(4d6 drop worst 1, 6)
+"""
+
+
 NAMES_TO_FUNCTIONS: typing.Dict[str, typing.Type[FnOp]] = {
     fn.name(): fn
     for fn in (
@@ -690,6 +780,7 @@ NAMES_TO_FUNCTIONS: typing.Dict[str, typing.Type[FnOp]] = {
         Abs,
         Explode,
         Eval,
+        Rep,
     )
 }
 
