@@ -430,11 +430,257 @@ async def ap(
     save_userdata()
 
 
+class Initiative:
+    def __init__(self, name: str, value: int, handle: typing.Optional[str]) -> None:
+        self.name = name
+        self.value = value
+        self.handle = handle
+
+    @property
+    def handle_or_name(self) -> str:
+        return self.handle if self.handle is not None else self.name
+
+    @classmethod
+    def on_load(cls, raw_data) -> "Initiative":
+        return Initiative(raw_data["name"], raw_data["value"], raw_data["handle"])
+
+    @classmethod
+    def on_save(cls, init: "Initiative"):
+        return {"name": init.name, "value": init.value, "handle": init.handle}
+
+
+INIT_RANDOM_PREFIX = (
+    "%s, you're up.",
+    "%s, your turn.",
+    "%s, you go.",
+    "Your time to shine, %s.",
+    "You're up to bat, %s.",
+    "Go, %s.",
+    "%s, your move.",
+    "Your turn, %s.",
+    "You're up, %s.",
+    "Your move, %s.",
+)
+
+
+INIT_RANDOM_POSTFIX = (
+    "Go get 'em!",
+    "Kill them all!",
+    "Don't mess it up!",
+    "You got this!",
+    "Finish them!",
+    "Do great things!",
+    "Choose wisely!",
+    "You can do it!",
+    "May the dice be in your favor!",
+    "Good luck!",
+    "Give 'em hell!",
+)
+
+
+class InitiativeTracker(typing.List[Initiative]):
+    @classmethod
+    def on_load(cls, raw_data) -> "InitiativeTracker":
+        return InitiativeTracker(Initiative.on_load(x) for x in raw_data)
+
+    @classmethod
+    def on_save(cls, tracker: "InitiativeTracker"):
+        return list(Initiative.on_save(x) for x in tracker)
+
+    def reset(self):
+        self.sort(key=lambda x: -x.value)
+
+    def next_init(self):
+        first = self.pop(0)
+        self.append(first)
+
+    def add_init(self, init: Initiative):
+        for other_init in sorted(self, key=lambda x: -x.value):
+            if other_init.value <= init.value:
+                self.insert(self.index(other_init), init)
+                return
+
+        if len(self) == 0:
+            self.append(init)
+        else:
+            self.insert(self.index(min(self, key=lambda x: x.value))+1, init)
+
+    def as_table(self) -> str:
+        if len(self) == 0:
+            return (
+                "No initatives have yet been defined."
+                " Use `!init add` to add players/NPCs to initative."
+            )
+
+        result = "```\n"
+        longest = max(len(x.name) for x in self)
+        for init in self:
+            result += ("%" + str(longest) + "s - %s\n") % (init.name, init.value)
+        return result + "```"
+
+    def whos_up(self) -> str:
+        init = self[0]
+        return "%s %s" % (
+            random.choice(INIT_RANDOM_PREFIX) % init.handle_or_name,
+            random.choice(INIT_RANDOM_POSTFIX),
+        )
+
+
+@client.command(
+    brief="initative tracker",
+    description="""!init get 
+
+    Gets the current initative order, without pinging anyone.
+
+!init add <name> <value> [<handle>]
+
+    Adds a player/NPC to initative. `handle`, if provided,
+    should be the @ to ping the player with when it is time
+    for thier turn.
+
+!init reset
+
+    Sorts initative. Pings the player who should go first.
+
+!init next
+
+    Advances initative. Pings the player who should now go.
+
+!init remove <name>
+
+    Removes a player/NPC from the initative.
+
+!init update <name> <value>
+
+    Changes the initative of a player/NPC.
+
+!init clear
+
+    Deletes ALL initative entries.
+""",
+)
+async def init(ctx: commands.Context, subcommand: str = "", *args_: str):
+    tracker: InitiativeTracker = get_userdata(ctx, "init", InitiativeTracker)
+
+    if not subcommand:
+        await ctx.send(
+            "error: no subcommand specified."
+            " Type `!help init` for a list of valid subcommands."
+        )
+        return
+
+    async def get():
+        await ctx.send(tracker.as_table())
+
+    async def add():
+        if len(args_) < 2 or len(args_) > 3:
+            await ctx.send(
+                "error: expected 2 or 3 argumenets, got %s."
+                " Type `!help init` for help with this subcommand." % len(args_)
+            )
+
+        name = args_[0]
+        value = int(args_[1])
+        handle = None if len(args_) == 2 else args_[2]
+        tracker.add_init(Initiative(name, value, handle))
+        await ctx.send("Initative is now:\n" + tracker.as_table())
+
+    async def reset():
+        if len(args_) != 0:
+            await ctx.send(
+                "error: expected 0 argumenets, got %s."
+                " Type `!help init` for help with this subcommand." % len(args_)
+            )
+
+        tracker.reset()
+        await ctx.send(tracker.as_table() + "\n" + tracker.whos_up())
+
+    async def next():
+        if len(args_) != 0:
+            await ctx.send(
+                "error: expected 0 argumenets, got %s."
+                " Type `!help init` for help with this subcommand." % len(args_)
+            )
+
+        tracker.next_init()
+        await ctx.send(tracker.as_table() + "\n" + tracker.whos_up())
+
+    async def remove():
+        if len(args_) != 1:
+            await ctx.send(
+                "error: expected 1 argumenet, got %s."
+                " Type `!help init` for help with this subcommand." % len(args_)
+            )
+
+        name = args_[0]
+        for i, init in enumerate(tuple(tracker)):
+            if name.lower() == init.name.lower():
+                del tracker[i]
+                await ctx.send("Initative is now:\n" + tracker.as_table())
+                return
+        await ctx.send(
+            "error: initative entry `%s` not found."
+            " Type `!help init` for help with this subcommand." % name
+        )
+
+    async def update():
+        if len(args_) != 2:
+            await ctx.send(
+                "error: expected 2 argumenets, got %s."
+                " Type `!help init` for help with this subcommand." % len(args_)
+            )
+
+        name = args_[0]
+        value = int(args_[1])
+        for i, init in enumerate(tuple(tracker)):
+            if name.lower() == init.name.lower():
+                init.value = value
+                del tracker[i]
+                tracker.add_init(init)
+                await ctx.send("Initative is now:\n" + tracker.as_table())
+                return
+        await ctx.send(
+            "error: initative entry `%s` not found."
+            " Type `!help init` for help with this subcommand." % name
+        )
+
+    async def clear():
+        if len(args_) != 0:
+            await ctx.send(
+                "error: expected 0 argumenets, got %s."
+                " Type `!help init` for help with this subcommand." % len(args_)
+            )
+
+        tracker.clear()
+        await ctx.send("Initative cleared.")
+
+    SUBCOMMANDS = {
+        "get": get,
+        "add": add,
+        "reset": reset,
+        "next": next,
+        "remove": remove,
+        "update": update,
+        "clear": clear,
+    }
+
+    if subcommand in SUBCOMMANDS:
+        await SUBCOMMANDS[subcommand]()
+        save_userdata()
+    else:
+        await ctx.send(
+            "errror: unknown subcommand `%s`."
+            " Type `!help init` for a list of valid subcommands." % subcommand
+        )
+
+
 USERDATA_ON_LOAD: typing.Dict[str, typing.Callable[[typing.Any], typing.Any]] = {
     "ap": APTracker.on_load,
+    "init": InitiativeTracker.on_load,
 }
 USERDATA_ON_SAVE: typing.Dict[str, typing.Callable[[typing.Any], typing.Any]] = {
     "ap": APTracker.on_save,
+    "init": InitiativeTracker.on_save,
 }
 
 
