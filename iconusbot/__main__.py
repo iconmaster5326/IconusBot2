@@ -1,10 +1,9 @@
 import asyncio
+import atexit
 import io
 import os
 import shutil
 import discord
-from discord import activity
-from discord import message
 from iconusbot.roll import DiceRollError
 import sys
 import typing
@@ -21,6 +20,33 @@ client = commands.Bot(
     activity=discord.Game(name="!help"),
     status=discord.Status.idle,
 )
+
+
+settings: typing.Dict[str, typing.Any] = {}
+userdata: typing.Dict[str, typing.Dict[str, typing.Any]] = {}
+
+
+def get_userdata(
+    ctx: commands.Context, key: str, default: typing.Callable[[], typing.Any]
+):
+    server: str = ""
+    if ctx.guild is not None:
+        server = ctx.guild.id
+    else:
+        server = ctx.author.id
+    userdata.setdefault(server, {})
+    if key not in userdata[server]:
+        userdata[server][key] = default()
+    return userdata[server][key]
+
+
+def save_userdata():
+    result = {}
+    for server, datas in userdata.items():
+        result[server] = {}
+        for key, value in datas.items():
+            result[server][key] = USERDATA_ON_SAVE[key](value)
+    yaml.safe_dump(result, open("userdata.yaml", "w"))
 
 
 def is_admin(ctx: commands.Context) -> bool:
@@ -335,6 +361,83 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         await msg.edit(content=check)
 
 
+class APTracker(typing.DefaultDict[str, int]):
+    def __init__(self, *args, **kwargs):
+        super().__init__(lambda: 0, *args, **kwargs)
+
+    @classmethod
+    def on_load(cls, raw_data) -> "APTracker":
+        return APTracker(raw_data)
+
+    @classmethod
+    def on_save(cls, tracker: "APTracker"):
+        return dict(tracker)
+
+
+@client.command(
+    brief="fallout 2d20 AP counter",
+    description="""!ap [<pool>] [<n>]
+
+Parameters:
+    pool - The pool to get/set AP from.
+    n - Either a number, a + followed by a number,
+        a - followed by a number, or `remove`.
+
+Result:
+    Keeps track of AP in the party's, the GM's, and other AP pools.
+
+    With no arguments, returns a list of AP pools.
+    With one arguments, returns a specific AP pool.
+    With two arguments, sets an AP pool, increases it, decreases it, or removes
+    it; depending on the input as enumerated by <n> above.
+""",
+)
+async def ap(
+    ctx: commands.Context,
+    pool: typing.Optional[str] = None,
+    n: typing.Optional[str] = None,
+):
+    tracker: APTracker = get_userdata(ctx, "ap", APTracker)
+
+    async def print_pool(pool: str):
+        await ctx.send("The pool **%s** has **%s** AP." % (pool, tracker[pool]))
+
+    if pool is None:
+        if len(tracker.keys()) == 0:
+            await ctx.send("No AP pools are currently being tracked.")
+        else:
+            for pool in tracker.keys():
+                await print_pool(pool)
+        return
+
+    if n is None:
+        await print_pool(pool)
+        return
+
+    if n == "remove":
+        del tracker[pool]
+        await ctx.send("Pool **%s** removed." % pool)
+    elif n.startswith("+"):
+        tracker[pool] += int(n[1:])
+        await ctx.send("Pool **%s** now has **%s** AP!" % (pool, tracker[pool]))
+    elif n.startswith("-"):
+        tracker[pool] -= int(n[1:])
+        await ctx.send("Pool **%s** now has **%s** AP!" % (pool, tracker[pool]))
+    else:
+        tracker[pool] = int(n)
+        await ctx.send("Pool **%s** now has **%s** AP!" % (pool, tracker[pool]))
+
+    save_userdata()
+
+
+USERDATA_ON_LOAD: typing.Dict[str, typing.Callable[[typing.Any], typing.Any]] = {
+    "ap": APTracker.on_load,
+}
+USERDATA_ON_SAVE: typing.Dict[str, typing.Callable[[typing.Any], typing.Any]] = {
+    "ap": APTracker.on_save,
+}
+
+
 @client.command(
     name="roll",
     brief="roll dice",
@@ -429,9 +532,6 @@ async def rollhelp(ctx: commands.Context, *args: str):
                 await ctx.send("```\n" + fn.help() + "\n```")
 
 
-settings: typing.Dict[str, typing.Any]
-
-
 def main(argv: typing.List[str] = sys.argv) -> int:
     if not os.path.exists("settings.yaml"):
         shutil.copy(
@@ -447,6 +547,15 @@ def main(argv: typing.List[str] = sys.argv) -> int:
 
     global settings
     settings = yaml.safe_load(open("settings.yaml"))
+
+    global userdata
+    if os.path.exists("userdata.yaml"):
+        for server, raw_userdata in yaml.safe_load(open("userdata.yaml")).items():
+            userdata[server] = {}
+            for key, value in raw_userdata.items():
+                userdata[server][key] = USERDATA_ON_LOAD[key](value)
+
+    atexit.register(save_userdata)
 
     client.run(settings["token"])
     return 0

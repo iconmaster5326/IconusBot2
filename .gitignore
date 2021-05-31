@@ -1,5 +1,6 @@
 token.txt
 settings.yaml
+userdata.yaml
 __pycache__/
 *.pyc
 /.vscode/
